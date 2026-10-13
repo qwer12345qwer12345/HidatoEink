@@ -27,7 +27,7 @@
 # 产物位置
 app/build/outputs/apk/release/app-release.apk
 
-# 运行单元测试（关卡生成唯一性、求解器、游戏规则）
+# 运行单元测试（关卡生成、求解器、游戏规则）
 ./gradlew test
 ```
 
@@ -45,7 +45,7 @@ app/src/main/java/com/eink/hidato/
 │   ├── Grids.kt                 # 8 方向几何工具 / Puzzle / GameState / GameEngine 规则引擎
 │   ├── HamiltonianPaths.kt      # 蛇形路径 + 合法性校验
 │   ├── HidatoSolver.kt          # CSP 求解器（前向检查 / MRV / 距离剪枝 / 连通性剪枝 / 双解早停）
-│   └── PuzzleGenerator.kt       # 逆向生成法：蛇形+50~200 次突变 → 线索压缩 → 难度回填
+│   └── PuzzleGenerator.kt       # 合法路径生成 → 按难度比例隐藏线索
 ├── data/
 │   ├── db/                      # Room：GameSaveEntity / GameSaveDao / HidatoDatabase
 │   ├── GameRepository.kt        # 单一 Room 保存入口，Mutex 按调用顺序读写
@@ -81,3 +81,4 @@ app/src/main/java/com/eink/hidato/
 - **恢复**：新关卡落库后将 SavedStateHandle 的模式改为继续，进程重建读取原关卡；
   难度从存档恢复，损坏存档显示失败页面。存在未完成游戏时主界面“继续游戏”高亮。
 - **DataStore**：记住用户上次设置的行列尺寸与难度。
+

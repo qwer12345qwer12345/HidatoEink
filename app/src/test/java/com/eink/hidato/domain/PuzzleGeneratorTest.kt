@@ -95,7 +95,7 @@ class HamiltonianPathsTest {
 
 class PuzzleGeneratorTest {
 
-    private val generator = PuzzleGenerator(HidatoSolver())
+    private val generator = PuzzleGenerator()
 
     @Test
     fun `puzzle with all clues has exactly one solution`() {
