@@ -7,9 +7,7 @@ import kotlin.random.Random
  * 逆向生成法关卡生成器：
  * 1. 采用纯随机 8 方向王棋哈密顿路径（无几何约束，直线与对角线比例自然形成）；
  * 2. 按路径顺序填入数字 1..M×N；
- * 3. 线索压缩：初始全部可见，按随机顺序逐个尝试隐藏，每次隐藏后用求解器验证唯一解，
- *    多解则恢复；按难度档的保留比例下限停止（简单 35%、中等 20%、困难压到极限最简），
- *    一轮无任何数字可隐藏为止（数字 1 与终点数字强制可见）。
+ * 3. 线索压缩：初始全部可见，按随机顺序隐藏到难度档目标比例（数字 1 与终点强制可见）。
  */
 class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
 
@@ -33,7 +31,7 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
 
         // 2. 填补数字 1..total（Puzzle 构造时由 path 生成 solution）
 
-        // 3. 线索压缩：按难度档保留比例下限停止，数字 1 与 total 强制保留。
+        // 3. 线索压缩：按难度档目标比例停止，数字 1 与 total 强制保留。
         // 隐藏顺序按"可见线索邻居数"降序（每轮重排、并列随机破平）：优先隐藏紧贴线索的数字，
         // 保持线索间距紧凑，让求解器的距离剪枝始终有效；随机顺序会先挖出孤立数字、
         // 制造长空隙，验证成本爆炸，压缩卡死在 33~37% 压不到难度刻度。
@@ -46,49 +44,34 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
         for (i in path.indices) cellToNumber[path[i]] = i + 1
 
         val hideable = (2 until total).toMutableList()
-        var changed = true
-        while (changed && visible > targetVisible) {
-            changed = false
-            val order = hideable.shuffled(random).sortedByDescending { n ->
-                val cell = path[n - 1]
-                val r = cell / cols
-                val c = cell % cols
-                var score = 0
-                for (d in Grids.DIRS) {
-                    val nr = r + d[0]
-                    val nc = c + d[1]
-                    if (nr in 0 until rows && nc in 0 until cols) {
-                        val k = cellToNumber[nr * cols + nc]
-                        if (clues[k]) score++
-                    }
-                }
-                score
-            }
-            for (n in order) {
-                if (visible <= targetVisible) break
-                if (System.currentTimeMillis() - startAt >= deadlineMillis) break
-                clues[n] = false
-                // 双解早停：唯一解则永久隐藏；多解则恢复并永久剔除
-                // （隐藏集合单调收缩，当前多解的隐藏之后只会更多解，不可能变唯一）
-                val count = solver.countSolutions(rows, cols, path, clues, limit = 2, nodeLimit = COMPRESS_NODE_LIMIT)
-                if (count == 1) {
-                    visible--
-                    changed = true
-                    hideable.remove(n)
-                } else {
-                    clues[n] = true
-                    if (count >= 2) hideable.remove(n)
+        val order = hideable.shuffled(random).sortedByDescending { n ->
+            val cell = path[n - 1]
+            val r = cell / cols
+            val c = cell % cols
+            var score = 0
+            for (d in Grids.DIRS) {
+                val nr = r + d[0]
+                val nc = c + d[1]
+                if (nr in 0 until rows && nc in 0 until cols) {
+                    val k = cellToNumber[nr * cols + nc]
+                    if (clues[k]) score++
                 }
             }
+            score
+        }
+        for (n in order) {
+            if (visible <= targetVisible) break
             if (System.currentTimeMillis() - startAt >= deadlineMillis) break
+            clues[n] = false
+            visible--
         }
 
         return Puzzle(rows, cols, path, clues)
     }
 
     /**
-     * 难度档的题面保留数量下限（给出的数字个数）。
-     * 简单 35%、中等 20%、困难不设下限（压到唯一解极限最简，只剩强制可见的 1 与终点）。
+     * 难度档的题面保留数量（给出的数字个数）。
+     * 简单 35%、中等 20%、困难只保留强制可见的 1 与终点。
      */
     private fun targetVisible(total: Int, difficulty: Difficulty): Int = when (difficulty) {
         Difficulty.EASY -> ceil(total * 0.35).toInt()
