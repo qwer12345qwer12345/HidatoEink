@@ -53,6 +53,22 @@ class HidatoSolver {
 
         val dist = IntArray(total)
         val queue = IntArray(total)
+        val neighbors = Array(total) { cell ->
+            val r = cell / cols
+            val c = cell % cols
+            IntArray(8).let { out ->
+                var size = 0
+                for (d in Grids.DIRS) {
+                    val nr = r + d[0]
+                    val nc = c + d[1]
+                    if (nr in 0 until rows && nc in 0 until cols) out[size++] = nr * cols + nc
+                }
+                if (size == out.size) out else out.copyOf(size)
+            }
+        }
+        val floodStack = IntArray(total)
+        val visitMarks = IntArray(total)
+        var visitStamp = 0
 
         // 从目标线索格出发，在"未放置格子"上做多源 BFS，dist[cell] = 最短路步数；
         // 已放置格子视为障碍，dist 保持 -1（不可达）。
@@ -64,14 +80,8 @@ class HidatoSolver {
             queue[qt++] = target
             while (qh < qt) {
                 val cell = queue[qh++]
-                val r = cell / cols
-                val c = cell % cols
                 val nd = dist[cell] + 1
-                for (d in Grids.DIRS) {
-                    val nr = r + d[0]
-                    val nc = c + d[1]
-                    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue
-                    val idx = nr * cols + nc
+                for (idx in neighbors[cell]) {
                     if (dist[idx] == -1 && !placed[idx]) {
                         dist[idx] = nd
                         queue[qt++] = idx
@@ -81,25 +91,18 @@ class HidatoSolver {
         }
 
         fun floodFillReachable(from: Int): Int {
-            val stack = IntArray(total)
             var sp = 0
-            stack[sp++] = from
-            val visited = BooleanArray(total)
-            visited[from] = true
+            val stamp = ++visitStamp
+            floodStack[sp++] = from
+            visitMarks[from] = stamp
             var count = 0
             while (sp > 0) {
-                val cell = stack[--sp]
+                val cell = floodStack[--sp]
                 count++
-                val r = cell / cols
-                val c = cell % cols
-                for (d in Grids.DIRS) {
-                    val nr = r + d[0]
-                    val nc = c + d[1]
-                    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue
-                    val idx = nr * cols + nc
-                    if (!placed[idx] && !visited[idx]) {
-                        visited[idx] = true
-                        stack[sp++] = idx
+                for (idx in neighbors[cell]) {
+                    if (!placed[idx] && visitMarks[idx] != stamp) {
+                        visitMarks[idx] = stamp
+                        floodStack[sp++] = idx
                     }
                 }
             }
@@ -134,13 +137,7 @@ class HidatoSolver {
                     }
                     return
                 }
-                val r = cur / cols
-                val c = cur % cols
-                for (d in Grids.DIRS) {
-                    val nr = r + d[0]
-                    val nc = c + d[1]
-                    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue
-                    val idx = nr * cols + nc
+                for (idx in neighbors[cur]) {
                     if (placed[idx] || used[idx] || idx == endCell) continue
                     // 切比雪夫可行性：到终点的最短可能步数不能超过剩余步数
                     if (Grids.chebyshev(idx, endCell, cols) > g - 1 - step) continue
@@ -262,15 +259,9 @@ class HidatoSolver {
                 return@seg
             }
             bfsDist(numPos[b])
-            val r = cur / cols
-            val c = cur % cols
             val candidates = IntArray(8)
             var candCount = 0
-            for (d in Grids.DIRS) {
-                val nr = r + d[0]
-                val nc = c + d[1]
-                if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue
-                val idx2 = nr * cols + nc
+            for (idx2 in neighbors[cur]) {
                 if (placed[idx2]) continue
                 if (dist[idx2] < 0 || dist[idx2] > b - k) continue
                 candidates[candCount++] = idx2
