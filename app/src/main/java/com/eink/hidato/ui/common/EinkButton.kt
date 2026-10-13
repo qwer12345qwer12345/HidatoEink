@@ -1,9 +1,10 @@
 package com.eink.hidato.ui.common
 
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -19,13 +20,20 @@ fun EinkButton(
     enabled: Boolean = true,
     emphasized: Boolean = false,
 ) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-        enabled = enabled,
-        border = if (emphasized) null else ButtonDefaults.outlinedButtonBorder,
-        colors = if (emphasized) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(),
-    ) {
-        Text(text, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+    val buttonModifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+    if (emphasized) {
+        Button(
+            onClick = onClick,
+            modifier = buttonModifier,
+            enabled = enabled,
+            shape = RoundedCornerShape(12.dp),
+        ) { Text(text, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center) }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = buttonModifier,
+            enabled = enabled,
+            shape = RoundedCornerShape(12.dp),
+        ) { Text(text, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center) }
     }
 }
