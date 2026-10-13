@@ -9,7 +9,7 @@ import kotlin.random.Random
  * 2. 按路径顺序填入数字 1..M×N；
  * 3. 线索压缩：初始全部可见，按随机顺序隐藏到难度档目标比例（数字 1 与终点强制可见）。
  */
-class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
+class PuzzleGenerator {
 
     /**
      * @param deadlineMillis 压缩阶段的时间预算，超时则以当前线索集结束（保证生成时间有界）
@@ -81,6 +81,5 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
 
     companion object {
         const val DEFAULT_DEADLINE_MS: Long = 2_000L
-        const val COMPRESS_NODE_LIMIT: Long = 10_000_000L
     }
 }

@@ -11,7 +11,7 @@ import org.junit.Test
 class GameEngineTest {
 
     private fun puzzle(rows: Int = 4, cols: Int = 4, seed: Long = 1): Puzzle =
-        PuzzleGenerator(HidatoSolver()).generate(
+        PuzzleGenerator().generate(
             rows, cols, Difficulty.HARD,
             Random(seed), deadlineMillis = 15_000,
         )

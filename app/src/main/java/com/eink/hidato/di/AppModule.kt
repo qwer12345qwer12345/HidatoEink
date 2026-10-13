@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.Room
 import com.eink.hidato.data.db.GameSaveDao
 import com.eink.hidato.data.db.HidatoDatabase
-import com.eink.hidato.domain.HidatoSolver
 import com.eink.hidato.domain.PuzzleGenerator
 import dagger.Module
 import dagger.Provides
@@ -43,9 +42,5 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun providePuzzleGenerator(solver: HidatoSolver): PuzzleGenerator = PuzzleGenerator(solver)
-
-    @Provides
-    @Singleton
-    fun provideSolver(): HidatoSolver = HidatoSolver()
+    fun providePuzzleGenerator(): PuzzleGenerator = PuzzleGenerator()
 }
