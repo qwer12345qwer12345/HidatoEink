@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.eink.hidato.domain.HamiltonianPathsTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-11T20:29:52" hostname="PC" time="0.004">
+  <properties/>
+  <testcase name="pure random paths keep natural straight runs and diagonal ratio" classname="com.eink.hidato.domain.HamiltonianPathsTest" time="0.002"/>
+  <testcase name="randomTour covers all cells with valid 8-direction adjacency" classname="com.eink.hidato.domain.HamiltonianPathsTest" time="0.0"/>
+  <testcase name="randomTour start positions are distributed across the board" classname="com.eink.hidato.domain.HamiltonianPathsTest" time="0.001"/>
+  <testcase name="isValid rejects broken path" classname="com.eink.hidato.domain.HamiltonianPathsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
