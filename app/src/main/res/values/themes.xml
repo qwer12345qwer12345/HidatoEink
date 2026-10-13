@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 无 ActionBar 主题，窗口背景跟随系统，避免启动闪色 -->
+    <style name="Theme.Hidato" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">?android:attr/colorBackground</item>
+    </style>
+</resources>
