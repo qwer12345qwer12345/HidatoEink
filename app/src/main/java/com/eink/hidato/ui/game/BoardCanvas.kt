@@ -19,7 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -73,7 +73,7 @@ fun BoardCanvas(
                                         selected = isFocused
                                     },
                                     enabled = !state.completed,
-                                    shape = RectangleShape,
+                                    shape = RoundedCornerShape(6.dp),
                                     contentPadding = PaddingValues(0.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(
                                         containerColor = container,
@@ -100,7 +100,7 @@ fun BoardCanvas(
                             val to = Offset((b % cols + 0.5f) * step, (b / cols + 0.5f) * step)
                             val inset = (to - from) * 0.35f
                             drawLine(
-                                color = colors.onSurface,
+                                color = colors.primary,
                                 start = from + inset,
                                 end = to - inset,
                                 strokeWidth = 2.dp.toPx(),
