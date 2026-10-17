@@ -41,6 +41,27 @@ class MinimumClueOptimizerTest {
     }
 
     @Test
+    fun `4x4 path has a five clue globally minimum puzzle`() {
+        // This fixed path exposes the difference between greedy deletion
+        // and minimizing the number of clues globally for one known tour.
+        val path = intArrayOf(2, 3, 7, 11, 15, 14, 10, 13, 12, 8, 9, 6, 1, 0, 5, 4)
+        assertTrue(HamiltonianPaths.isValid(path, 4, 4))
+        val result = MinimumClueOptimizer().optimize(
+            Puzzle(4, 4, path, BooleanArray(17) { it > 0 }),
+            timeLimitMillis = 10_000,
+            oracleNodeLimit = 10_000_000,
+            oracleTimeSliceMillis = 5_000,
+            maxMasterNodes = 1_000_000,
+        )
+        assertTrue(result.optimalityProven)
+        assertEquals(5, result.finalClues)
+        assertTrue(
+            HidatoSolver().findAlternative(4, 4, path, result.puzzle.clues,
+                nodeLimit = 10_000_000, timeLimitMillis = 5_000) is AlternativeResult.Unique,
+        )
+    }
+
+    @Test
     fun `limited master budget does not issue a false optimality proof`() {
         val path = paths[0]
         val result = MinimumClueOptimizer().optimize(
