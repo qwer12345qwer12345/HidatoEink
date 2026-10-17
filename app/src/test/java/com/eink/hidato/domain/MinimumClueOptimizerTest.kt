@@ -164,7 +164,7 @@ class MinimumClueOptimizerTest {
                 repeat(3) { cut.set(2 + random.nextInt(7)) }
                 cut
             }
-            val lowerBound = optimiser.disjointWitnessLowerBound(cuts)
+            val lowerBound = optimiser.witnessLowerBound(cuts)
             val exhaustiveMinimum = (0 until 128)
                 .filter { mask -> cuts.all { cut ->
                     (2..8).any { n -> (mask and (1 shl (n - 2))) != 0 && cut.get(n) }
