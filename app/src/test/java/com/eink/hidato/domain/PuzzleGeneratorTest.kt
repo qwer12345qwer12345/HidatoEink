@@ -124,7 +124,7 @@ class PuzzleGeneratorTest {
     fun `generated puzzles keep endpoints visible`() {
         val random = Random(42)
         for (size in intArrayOf(4, 5, 6, 7, 8, 9, 10)) {
-            val puzzle = generator.generate(size, size, Difficulty.HARD, random, deadlineMillis = 30_000)
+            val puzzle = generator.generate(size, size, Difficulty.HARD, random, deadlineMillis = 3_000)
             val total = size * size
             assertTrue("起点必须可见", puzzle.isClueVisible(1))
             assertTrue("终点必须可见", puzzle.isClueVisible(total))
@@ -136,7 +136,7 @@ class PuzzleGeneratorTest {
     fun `non square grid 4x15 and 15x4 generates valid puzzle`() {
         val random = Random(7)
         for ((r, c) in listOf(4 to 15, 15 to 4)) {
-            val puzzle = generator.generate(r, c, Difficulty.MEDIUM, random, deadlineMillis = 30_000)
+            val puzzle = generator.generate(r, c, Difficulty.MEDIUM, random, deadlineMillis = 3_000)
             assertTrue(HamiltonianPaths.isValid(puzzle.path, r, c))
             assertTrue(puzzle.isClueVisible(1))
             assertTrue(puzzle.isClueVisible(r * c))
@@ -147,7 +147,7 @@ class PuzzleGeneratorTest {
     fun `max size 15x15 hard generates puzzle within deadline`() {
         val random = Random(2026)
         val startAt = System.currentTimeMillis()
-        val puzzle = generator.generate(15, 15, Difficulty.HARD, random, deadlineMillis = 20_000)
+        val puzzle = generator.generate(15, 15, Difficulty.HARD, random, deadlineMillis = 3_000)
         val elapsed = System.currentTimeMillis() - startAt
         assertTrue("生成耗时应有限：$elapsed ms", elapsed < 60_000)
         assertTrue(puzzle.isClueVisible(1))
@@ -159,22 +159,22 @@ class PuzzleGeneratorTest {
         (1..puzzle.total).count { puzzle.isClueVisible(it) }.toDouble() / puzzle.total
 
     @Test
-    fun `easy puzzle keeps 35 to 45 percent clues`() {
-        val puzzle = generator.generate(8, 8, Difficulty.EASY, Random(11), deadlineMillis = 30_000)
+    fun `easy puzzle does not go below the configured minimum`() {
+        val puzzle = generator.generate(8, 8, Difficulty.EASY, Random(11), deadlineMillis = 3_000)
         val ratio = visibleRatio(puzzle)
         assertTrue("简单档保留比例应 ≥35%，实际 $ratio", ratio >= 0.35)
     }
 
     @Test
-    fun `medium puzzle keeps 20 to 30 percent clues`() {
-        val puzzle = generator.generate(8, 8, Difficulty.MEDIUM, Random(12), deadlineMillis = 30_000)
+    fun `medium puzzle does not go below the configured minimum`() {
+        val puzzle = generator.generate(8, 8, Difficulty.MEDIUM, Random(12), deadlineMillis = 3_000)
         val ratio = visibleRatio(puzzle)
         assertTrue("中等档保留比例应 ≥20%，实际 $ratio", ratio >= 0.20)
     }
 
     @Test
-    fun `hard puzzle compresses below the medium floor`() {
-        val puzzle = generator.generate(8, 8, Difficulty.HARD, Random(13), deadlineMillis = 30_000)
+    fun `hard puzzle is proven unique with no fixed percentage target`() {
+        val puzzle = generator.generate(8, 8, Difficulty.HARD, Random(13), deadlineMillis = 3_000)
         val ratio = visibleRatio(puzzle)
         assertTrue("困难档必须保留至少两个固定端点", ratio >= 2.0 / 64)
         // No fixed percentage can safely be promised for unique Hidato.
