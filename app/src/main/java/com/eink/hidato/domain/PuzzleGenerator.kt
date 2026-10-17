@@ -126,7 +126,7 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
      * distinguishing clue. A missing distinguishing clue set proves multi-
      * solution without DFS; the full solver is still needed to prove UNIQUE.
      */
-    private fun localReversalWitnesses(path: IntArray, cols: Int): List<IntArray> {
+    internal fun localReversalWitnesses(path: IntArray, cols: Int): List<IntArray> {
         val out = ArrayList<IntArray>()
         for (start in 1 until path.size - 2) {
             for (end in start + 1..minOf(path.size - 2, start + MAX_LOCAL_REVERSAL_LENGTH - 1)) {
