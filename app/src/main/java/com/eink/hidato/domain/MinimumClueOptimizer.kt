@@ -145,7 +145,7 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
             stopped = stopped,
             initialClues = initialClues,
             finalClues = incumbent.cardinality() + 2,
-            certifiedLowerBoundClues = minimumOptional + 2,
+            certifiedLowerBoundClues = if (stopped == Stopped.PROVED_MINIMUM) incumbent.cardinality() + 2 else minimumOptional + 2,
             constraints = conflicts.size,
             alternativeTours = alternatives,
             solverCalls = oracleCalls,
