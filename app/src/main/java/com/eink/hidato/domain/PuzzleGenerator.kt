@@ -3,83 +3,144 @@ package com.eink.hidato.domain
 import kotlin.math.ceil
 import kotlin.random.Random
 
-/**
- * 逆向生成法关卡生成器：
- * 1. 采用纯随机 8 方向王棋哈密顿路径（无几何约束，直线与对角线比例自然形成）；
- * 2. 按路径顺序填入数字 1..M×N；
- * 3. 线索压缩：初始全部可见，按随机顺序隐藏到难度档目标比例（数字 1 与终点强制可见）。
- */
-class PuzzleGenerator {
+/** Counters show which deductions actually reduced solver work. */
+data class GenerationStats(
+    val retainedClues: Int,
+    val verifiedRemovals: Int,
+    val rejectedByLocalReversal: Int,
+    val rejectedBySolver: Int,
+    val unresolvedChecks: Int,
+    val solverCalls: Int,
+    val completedPass: Boolean,
+    val elapsedMillis: Long,
+)
 
-    /**
-     * @param deadlineMillis 压缩阶段的时间预算，超时则以当前线索集结束（保证生成时间有界）
-     */
+data class GeneratedPuzzle(val puzzle: Puzzle, val stats: GenerationStats)
+
+/**
+ * Monotone clue removal: every accepted deletion is PROVED to leave exactly
+ * one solution. Precomputed valid segment reversals reject some deletions
+ * without invoking the full solver. The deadline only affects how sparse a puzzle
+ * becomes: UNKNOWN always means keep the clue.
+ */
+class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
     fun generate(
         rows: Int,
         cols: Int,
         difficulty: Difficulty,
         random: Random = Random.Default,
         deadlineMillis: Long = DEFAULT_DEADLINE_MS,
-    ): Puzzle {
-        require(rows in 4..15 && cols in 4..15) { "网格尺寸必须在 4~15 之间" }
-        val total = rows * cols
-        val startAt = System.currentTimeMillis()
+    ): Puzzle = generateDetailed(rows, cols, difficulty, random, deadlineMillis).puzzle
 
-        // 1. 生成完整路径：纯随机王棋哈密顿路径
+    fun generateDetailed(
+        rows: Int,
+        cols: Int,
+        difficulty: Difficulty,
+        random: Random = Random.Default,
+        deadlineMillis: Long = DEFAULT_DEADLINE_MS,
+        perCheckMillis: Long = DEFAULT_PER_CHECK_MS,
+        nodeLimit: Long = HidatoSolver.DEFAULT_NODE_LIMIT,
+    ): GeneratedPuzzle {
+        require(rows in 4..15 && cols in 4..15)
+        require(deadlineMillis > 0 && perCheckMillis > 0)
         val path = HamiltonianPaths.randomTour(rows, cols, random)
-        check(HamiltonianPaths.isValid(path, rows, cols)) { "生成的路径非法" }
+        return minimizeClues(rows, cols, difficulty, path, random, deadlineMillis, perCheckMillis, nodeLimit)
+    }
 
-        // 2. 填补数字 1..total（Puzzle 构造时由 path 生成 solution）
-
-        // 3. 线索压缩：按难度档目标比例停止，数字 1 与 total 强制保留。
-        // 隐藏顺序按"可见线索邻居数"降序（每轮重排、并列随机破平）：优先隐藏紧贴线索的数字，
-        // 保持线索间距紧凑，让求解器的距离剪枝始终有效；随机顺序会先挖出孤立数字、
-        // 制造长空隙，验证成本爆炸，压缩卡死在 33~37% 压不到难度刻度。
-        val targetVisible = targetVisible(total, difficulty)
+    /** Repeatable offline experiments can optimize several clue orders for the same path. */
+    fun minimizeClues(
+        rows: Int,
+        cols: Int,
+        difficulty: Difficulty,
+        path: IntArray,
+        random: Random = Random.Default,
+        deadlineMillis: Long = DEFAULT_DEADLINE_MS,
+        perCheckMillis: Long = DEFAULT_PER_CHECK_MS,
+        nodeLimit: Long = HidatoSolver.DEFAULT_NODE_LIMIT,
+    ): GeneratedPuzzle {
+        require(HamiltonianPaths.isValid(path, rows, cols))
+        require(rows in 4..15 && cols in 4..15)
+        require(deadlineMillis > 0 && perCheckMillis > 0 && nodeLimit > 0)
+        val started = System.nanoTime()
+        val total = rows * cols
         val clues = BooleanArray(total + 1) { true }
-        clues[1] = true
-        clues[total] = true
         var visible = total
-        val cellToNumber = IntArray(total)
-        for (i in path.indices) cellToNumber[path[i]] = i + 1
+        val minimum = when (difficulty) {
+            Difficulty.EASY -> ceil(total * 0.35).toInt().coerceAtLeast(2)
+            Difficulty.MEDIUM -> ceil(total * 0.20).toInt().coerceAtLeast(2)
+            Difficulty.HARD -> 2 // lower bound, NOT a claim that two clues imply uniqueness
+        }
+        val localReversals = localReversalWitnesses(path, cols)
+        val order = (2 until total).shuffled(random)
+        var verified = 0
+        var localRejected = 0
+        var solverRejected = 0
+        var unknown = 0
+        var calls = 0
+        var attempted = 0
+        fun elapsed(): Long = (System.nanoTime() - started) / 1_000_000L
 
-        val hideable = (2 until total).toMutableList()
-        val order = hideable.shuffled(random).sortedByDescending { n ->
-            val cell = path[n - 1]
-            val r = cell / cols
-            val c = cell % cols
-            var score = 0
-            for (d in Grids.DIRS) {
-                val nr = r + d[0]
-                val nc = c + d[1]
-                if (nr in 0 until rows && nc in 0 until cols) {
-                    val k = cellToNumber[nr * cols + nc]
-                    if (clues[k]) score++
+        for (number in order) {
+            if (visible <= minimum) break
+            val remaining = deadlineMillis - elapsed()
+            if (remaining <= 0) break
+            attempted++
+            clues[number] = false
+            // A valid segment reversal agreeing with every visible clue
+            // already proves at least two legal solutions.
+            if (localReversals.any { difference -> difference.none { clues[it] } }) {
+                localRejected++
+                clues[number] = true
+                continue
+            }
+            calls++
+            when (solver.findAlternative(
+                rows, cols, path, clues,
+                nodeLimit = nodeLimit,
+                timeLimitMillis = minOf(perCheckMillis, remaining),
+            )) {
+                is AlternativeResult.Unique -> {
+                    visible--
+                    verified++
+                }
+                is AlternativeResult.Found -> {
+                    solverRejected++
+                    clues[number] = true
+                }
+                is AlternativeResult.Unknown -> {
+                    unknown++
+                    clues[number] = true
                 }
             }
-            score
         }
-        for (n in order) {
-            if (visible <= targetVisible) break
-            if (System.currentTimeMillis() - startAt >= deadlineMillis) break
-            clues[n] = false
-            visible--
-        }
-
-        return Puzzle(rows, cols, path, clues)
+        // A fully given puzzle is unique. We only remove clues after a
+        // complete uniqueness proof, so this invariant holds on timeout too.
+        val stats = GenerationStats(visible, verified, localRejected, solverRejected, unknown, calls, attempted == order.size, elapsed())
+        return GeneratedPuzzle(Puzzle(rows, cols, path.copyOf(), clues), stats)
     }
 
     /**
-     * 难度档的题面保留数量（给出的数字个数）。
-     * 简单 35%、中等 20%、困难只保留强制可见的 1 与终点。
+     * Reversing a section of a complete path gives another valid path if the
+     * two new boundary edges exist. Every changed digit is a possible
+     * distinguishing clue. A missing distinguishing clue set proves multi-
+     * solution without DFS; the full solver is still needed to prove UNIQUE.
      */
-    private fun targetVisible(total: Int, difficulty: Difficulty): Int = when (difficulty) {
-        Difficulty.EASY -> ceil(total * 0.35).toInt()
-        Difficulty.MEDIUM -> ceil(total * 0.20).toInt()
-        Difficulty.HARD -> 2
+    internal fun localReversalWitnesses(path: IntArray, cols: Int): List<IntArray> {
+        val out = ArrayList<IntArray>()
+        for (start in 1 until path.size - 2) {
+            for (end in start + 1..minOf(path.size - 2, start + MAX_LOCAL_REVERSAL_LENGTH - 1)) {
+                if (!Grids.adjacent(path[start - 1], path[end], cols)) continue
+                if (!Grids.adjacent(path[start], path[end + 1], cols)) continue
+                val changed = (start..end).filter { start + end != it * 2 }.map { it + 1 }.toIntArray()
+                if (changed.isNotEmpty()) out.add(changed)
+            }
+        }
+        return out
     }
 
     companion object {
-        const val DEFAULT_DEADLINE_MS: Long = 2_000L
+        const val DEFAULT_DEADLINE_MS = 2_000L
+        const val DEFAULT_PER_CHECK_MS = 250L
+        const val MAX_LOCAL_REVERSAL_LENGTH = 10
     }
 }
