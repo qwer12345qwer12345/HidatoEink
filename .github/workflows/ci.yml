@@ -1,0 +1,28 @@
+name: Android and uniqueness checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit-and-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install matching Android SDK
+        run: |
+          sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+      - name: Compile and run JVM unit tests
+        run: bash ./gradlew :app:testDebugUnitTest --no-daemon
+      - name: Validate every bundled puzzle
+        run: |
+          # The repository offline validator uses the pure Kotlin code.
+          # GitHub runner has kotlinc available; verify rather than silently skip.
+          command -v kotlinc
+          bash tools/offline/verify-catalog.sh
