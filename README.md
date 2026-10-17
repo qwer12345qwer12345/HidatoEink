@@ -82,6 +82,7 @@ bash tools/offline/verify-catalog.sh /tmp/optimized.tsv
 | `data/PrebuiltPuzzleCatalog.kt` | 加载并选择已离线验证的题目 |
 | `tools/offline/` | 离线生成、精确优化和题库复验 |
 | `docs/minimum-clues.md` | 数学模型、正确性解释、算法边界、测试证据 |
+| `docs/frequency-cover-bound.md` | 本次新增的出现频率下界：证明、例子和测试 |
 
 ## 已知限制与开发约定
 
