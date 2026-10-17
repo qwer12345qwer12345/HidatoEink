@@ -20,6 +20,8 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
         val stopped: Stopped,
         val initialClues: Int,
         val finalClues: Int,
+        /** Provable lower bound, including the two mandatory endpoints. */
+        val certifiedLowerBoundClues: Int,
         val constraints: Int,
         val alternativeTours: Int,
         val solverCalls: Int,
@@ -80,10 +82,20 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
         var alternatives = 0
         var masterNodes = 0L
         var stopped = Stopped.TIME_LIMIT
+        var minimumOptional = 0
 
         while (remainingMillis() > 0) {
+            // Each pairwise-disjoint alternative-path difference set needs
+            // a distinct given digit. If that count reaches the certified
+            // upper bound, minimality follows without searching the master.
+            minimumOptional = disjointWitnessLowerBound(conflicts)
+            if (minimumOptional >= incumbent.cardinality()) {
+                stopped = Stopped.PROVED_MINIMUM
+                break
+            }
             val master = HittingSetMaster(
                 constraints = conflicts,
+                minimumSelected = minimumOptional,
                 maxSelected = incumbent.cardinality() - 1,
                 maximumNodes = maxMasterNodes - masterNodes,
                 deadline = deadline,
@@ -133,6 +145,7 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
             stopped = stopped,
             initialClues = initialClues,
             finalClues = incumbent.cardinality() + 2,
+            certifiedLowerBoundClues = minimumOptional + 2,
             constraints = conflicts.size,
             alternativeTours = alternatives,
             solverCalls = oracleCalls,
@@ -198,9 +211,28 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
         return witnesses
     }
 
+    /**
+     * Any family of disjoint difference sets needs at least one DIFFERENT
+     * clue per set. This greedy packing is only a lower bound, not an
+     * attempt to find the maximum packing. Sorting smallest first is a
+     * cheap deterministic choice, and never compromises the proof.
+     */
+    internal fun disjointWitnessLowerBound(cuts: List<BitSet>): Int {
+        val occupied = BitSet()
+        var count = 0
+        for (cut in cuts.sortedBy(BitSet::cardinality)) {
+            if (!occupied.intersects(cut)) {
+                occupied.or(cut)
+                count++
+            }
+        }
+        return count
+    }
+
     /** Exact minimum-cardinality hitting-set master with a node/time budget. */
     private class HittingSetMaster(
         private val constraints: List<BitSet>,
+        private val minimumSelected: Int,
         private val maxSelected: Int,
         private val maximumNodes: Long,
         private val deadline: Long,
@@ -214,7 +246,9 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
 
         fun solve(): Answer {
             if (maxSelected < 0) return Answer(Kind.EXHAUSTED)
-            for (bound in 0..maxSelected) {
+            // Every cardinality below minimumSelected is already ruled out
+            // by the disjoint-set proof; enumerating it only repeats work.
+            for (bound in minimumSelected..maxSelected) {
                 visited = HashSet()
                 search(BitSet(), 0, bound)
                 found?.let { return Answer(Kind.FOUND, it, nodes) }
