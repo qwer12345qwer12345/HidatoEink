@@ -177,6 +177,26 @@ app/src/main/java/com/eink/hidato/
 
 测试代码覆盖路径合法性、求解器与简单暴力枚举的结果交叉验证、第二答案的合法性、超预算处理、线索唯一性以及游戏规则。可用 `bash tools/offline/verify-catalog.sh` 逐条重新证明内置的 18 道题目只有一个解。尚需在目标 Android/墨水屏设备上执行构建与性能测试。
 
+## 固定答案路径的最少线索数学优化（离线、实验性）
+
+新增 **[数学建模与正确性证明](docs/minimum-clues.md)**：将固定完整答案路径的最少线索问题表达为*最小击中集*，以求解器返回的第二条合法路径为反例，不断加入必要的线索约束。主问题采用有节点/时间限制的精确分支限界搜索；分离子问题只有在确认找不到第二条路径后才允许标记唯一。
+
+这与在线的快速唯一解贪心生成器**分离**：只用于离线研究，不影响玩家启动速度。最多支持 **64 格**，即 8×8 或其他总格数不超过 64 的矩形棋盘。输出明确区分：
+
+- `PROVED_MINIMUM`：已经证明**这条固定完整答案路径**在首尾线索固定条件下所需线索最少。
+- `TIME_LIMIT`、`MASTER_NODE_LIMIT`、`SOLVER_UNKNOWN`：仍然返回已验证唯一解的题目，**不宣称最优**。
+
+```bash
+# 优化 TSV 题库中的第 1 个条目（最长 30 秒）；stdout 输出候选题目
+bash tools/offline/minimize-catalog.sh app/src/main/assets/unique-puzzles.tsv 1 30000
+
+# 保存并进行单独的唯一解复验
+bash tools/offline/minimize-catalog.sh app/src/main/assets/unique-puzzles.tsv 1 30000 > /tmp/optimized.tsv
+bash tools/offline/verify-catalog.sh /tmp/optimized.tsv
+```
+
+> 注意：“固定路径最小线索数”不等于“在所有可生成路径中找到全局最少线索”。复杂的离线精确优化只在能证明时给出最优结论，否则透明地返回当前经验证的上界。
+
 ## 后续可改进方向
 
 - 统计真实设备上的生成耗时，扩大离线题库、减少重复关卡，并评估全局最小击中集优化的实际收益。
