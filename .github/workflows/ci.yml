@@ -14,10 +14,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install matching Android SDK
+      - name: Use runner Android SDK
         run: |
-          sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-34' 'build-tools;34.0.0'
       - name: Compile and run JVM unit tests
         run: bash ./gradlew :app:testDebugUnitTest --no-daemon
       - name: Validate every bundled puzzle
