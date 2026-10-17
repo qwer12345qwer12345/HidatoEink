@@ -40,7 +40,7 @@ fun main(args: Array<String>) {
         }
         System.err.println("$rows x $cols $difficulty attempt=$attempt clues=${result.stats.retainedClues} " +
             "verified-removals=${result.stats.verifiedRemovals} " +
-            "witness-rejections=${result.stats.rejectedByWitness} " +
+            "local-reversals=${result.stats.rejectedByLocalReversal} cached-alternatives=${result.stats.rejectedByCachedAlternative} " +
             "unknown=${result.stats.unresolvedChecks} elapsedMs=${result.stats.elapsedMillis}")
     }
     val winner = checkNotNull(best)
