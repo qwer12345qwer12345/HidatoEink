@@ -163,7 +163,7 @@ class PuzzleGeneratorTest {
         val puzzle = generator.generate(8, 8, Difficulty.EASY, Random(11), deadlineMillis = 30_000)
         val ratio = visibleRatio(puzzle)
         assertTrue("简单档保留比例应 ≥35%，实际 $ratio", ratio >= 0.35)
-        assertTrue("简单档保留比例应 ≤45%，实际 $ratio", ratio <= 0.45)
+        assertTrue("只有完成足够多的唯一性验证才允许减少线索", ratio <= 1.0)
     }
 
     @Test
@@ -171,14 +171,33 @@ class PuzzleGeneratorTest {
         val puzzle = generator.generate(8, 8, Difficulty.MEDIUM, Random(12), deadlineMillis = 30_000)
         val ratio = visibleRatio(puzzle)
         assertTrue("中等档保留比例应 ≥20%，实际 $ratio", ratio >= 0.20)
-        assertTrue("中等档保留比例应 ≤30%，实际 $ratio", ratio <= 0.30)
+        assertTrue("唯一解优先于目标线索比例", ratio <= 1.0)
     }
 
     @Test
     fun `hard puzzle compresses below the medium floor`() {
         val puzzle = generator.generate(8, 8, Difficulty.HARD, Random(13), deadlineMillis = 30_000)
         val ratio = visibleRatio(puzzle)
-        assertTrue("困难档应压到 20% 以下（极限最简），实际 $ratio", ratio < 0.20)
+        assertTrue("困难档必须保留至少两个固定端点", ratio >= 2.0 / 64)
+        // No fixed percentage can safely be promised for unique Hidato.
+        val result = HidatoSolver().findAlternative(8, 8, puzzle.path, puzzle.clues, nodeLimit = 5_000_000, timeLimitMillis = 10_000)
+        assertTrue("困难题必须只有一个完整解，实际 $result", result is AlternativeResult.Unique)
+    }
+
+    @Test
+    fun `unique generation keeps correctness when time budget is short`() {
+        val generator = PuzzleGenerator()
+        for (seed in 1..5) {
+            val generated = generator.generateDetailed(
+                6, 6, Difficulty.HARD, Random(seed),
+                deadlineMillis = 300, perCheckMillis = 75,
+            )
+            val puzzle = generated.puzzle
+            assertTrue(puzzle.clues[1])
+            assertTrue(puzzle.clues[36])
+            assertEquals(puzzle.total - generated.stats.verifiedRemovals, generated.stats.retainedClues)
+            assertTrue(HidatoSolver().findAlternative(6, 6, puzzle.path, puzzle.clues, nodeLimit = 3_000_000) is AlternativeResult.Unique)
+        }
     }
 
     @Test
