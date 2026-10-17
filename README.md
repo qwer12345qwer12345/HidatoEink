@@ -1,84 +1,149 @@
-# 数连 Hidato（墨水屏专属版）V1.3
+# 数连 Hidato（HidatoEink）V1.3
 
-专为墨水屏（E-ink）设备优化的经典 Hidato（数连）谜题 Android 应用。
-从数字 1 开始，按 8 方向依次连接到最大数字，填满整个 M×N 网格即通关。
+面向 Android 墨水屏（E-ink）设备的 Hidato（数连）游戏。玩家从任意已显示数字出发，沿上下左右或对角线相邻格子，依次补出后续数字。
 
-## 技术栈（全部官方方案）
+> **关于唯一解**：当前版本先生成一条覆盖整个棋盘的合法完整路径，再按难度隐藏部分数字，**不检查题面是否只有一个解**。因此每局都有一条内置答案路径，但题面可能存在多个符合 Hidato 规则的解。游戏会以生成时保存的那条路径判断点击正误。这是当前实现的取舍，而不是已经完成唯一解生成。
+
+## 当前功能
+
+- 自定义 **4～15 行 × 4～15 列**棋盘，支持长方形棋盘。
+- 简单、中等、困难三档难度；首次启动显示可跳过的玩法教程。
+- 点击已有数字选中焦点，再点击相邻空白格尝试填入下一个数字；错误点击会累计错误次数。
+- 可随时改选另一已显示数字作为起点；支持撤销最后一次玩家填数、随机提示及重置本关。
+- 大棋盘支持横向和纵向滚动；格子点击区域至少 48dp。
+- 自动保存游戏进度；可从主界面继续未完成的关卡。
+- 通关后显示错误次数、提示次数，保存成功后展示结算。
+
+**操作说明**：本版本采用“即时判定”玩法，空白格只有与内置答案中的下一个数字一致且相邻时才会填入；它不是允许玩家自由填写所有可能数字、最后再统一验题的传统纸笔模式。提示会随机揭示一个尚未显示的数字，并将焦点移到该格。
+
+## 难度与线索
+
+| 难度 | 目标初始可见数字数 | 说明 |
+| --- | --- | --- |
+| 简单 | `ceil(总格数 × 35%)` | 线索相对多 |
+| 中等 | `ceil(总格数 × 20%)` | 线索较少 |
+| 困难 | 2 | 仅保留数字 1 和终点数字 |
+
+数字 1 和终点数字始终保留。上述数值是**目标线索数量**，与“逻辑推理难度”或“唯一解”不等价。线索隐藏阶段默认使用约 2 秒的时间预算；若提前到期，实际保留的线索可能多于目标数量。
+
+## 实现与技术栈
 
 | 类别 | 方案 |
 | --- | --- |
-| 语言 | Kotlin 1.9.24 |
-| 构建 | Gradle 8.7 + Kotlin DSL（build.gradle.kts） |
+| 语言 / 构建 | Kotlin 1.9.24；Gradle 8.7 + Kotlin DSL；JDK 17 |
 | UI | Jetpack Compose（BOM 2024.06.00）+ Material 3 |
 | 架构 | MVVM（ViewModel + StateFlow） |
-| 异步 | Kotlin Coroutines + StateFlow |
+| 异步 | Kotlin Coroutines |
 | 依赖注入 | Hilt 2.51.1（KSP） |
-| 持久化 | Room 2.6.1（游戏进度）+ DataStore Preferences（行列尺寸与难度） |
-| 棋盘 | Material 3 格子按钮 + Compose Canvas 连线；大棋盘可滚动 |
+| 数据持久化 | Room 2.6.1（进度）+ DataStore Preferences（设置和教程状态） |
+| Android | minSdk 24 / compileSdk 34 / targetSdk 34 |
 
-## 构建命令
+界面使用 Material 3 格子按钮和 Compose Canvas 绘制数字间的连接线。主题目前采用系统深浅色模式，在 Android 12 及以上还会使用动态配色。
 
-环境要求：JDK 17、Android SDK（compileSdk 34 / build-tools 34.0.0）、`local.properties` 指向 SDK 路径。
+**墨水屏适配现状**：已针对可点击区域和大棋盘滚动进行布局处理；目前未实现特定品牌的 E-ink 局部刷新 API、强制全刷或独立纯黑白配色模式。不同墨水屏设备上的残影、刷新速度与可读性仍需实机验证。
 
-```bash
-# 打 Release 包（在项目根目录执行，必须成功生成 app-release.apk）
-./gradlew assembleRelease
+## 核心算法（以当前代码为准）
 
-# 产物位置
-app/build/outputs/apk/release/app-release.apk
+### 1. 完整路径生成
 
-# 运行单元测试（关卡生成、求解器、游戏规则）
-./gradlew test
-```
+`HamiltonianPaths.randomTour()` 使用**带随机扰动的 Warnsdorff 贪心策略**：
 
-Release 构建启用 R8 代码优化和资源裁剪，并使用调试签名，APK 可直接安装。
+1. 在棋盘上随机选择起点。
+2. 在当前格子的 8 方向未访问邻居中，优先选择后续未访问邻居数最少的格子；随机扰动用于打破评分接近的情况。
+3. 若中途无法继续，则重新尝试；成功时得到一条覆盖所有格子的合法 Hamilton 路径。
+4. 使用 `HamiltonianPaths.isValid()` 校验路径没有重复格子、没有漏格且每步相邻。
 
-首次启动显示可跳过的玩法教程；完成或跳过后通过 DataStore 记住，下次启动不再显示。
+当前实现**不是**旧 README 描述的“蛇形路径 + 50～200 次段反转”。生成器的 2 秒预算也不是整个路径生成过程的严格超时上限：`randomTour()` 使用重试循环。
+
+### 2. 线索隐藏
+
+`PuzzleGenerator.generate()` 从全部数字可见开始，固定保留 1 与终点。其余候选数字先随机打乱，再按**初始棋盘上可见线索邻居数**降序排序，逐个隐藏，直到达到目标数量或时间预算。
+
+当前隐藏过程**不会调用求解器**，也不会在隐藏后恢复导致多解的线索；没有“难度回填”步骤。
+
+### 3. 保留的求解器（目前不参与生成）
+
+`HidatoSolver` 仍保留在代码中，供实验与测试使用，包括：
+
+- 按相邻已知线索划分数字区间。
+- 小间隔枚举候选路径链；大间隔使用逐格 DFS 和 BFS 最短路距离剪枝。
+- 剩余格子的连通性剪枝。
+- 找到指定数量的解后提前停止（常用上限为 2）。
+- 超出搜索节点预算时返回 `-1`，表示**未能在预算内完成验证**，而不是“无解”。
+
+当前关卡生成器不依赖其计算结果，因此不应将“生成题目唯一解”当作已实现功能。
+
+## 唯一解生成：历史尝试与现状
+
+这个项目**曾实现过**“隐藏一个数字 → 调用求解器检查是否仍只有一个解 → 多解则恢复”的方案，并非从未尝试过唯一解生成。
+
+相关 Git 历史：
+
+1. [`6660ae8` — perf: optimize hidato solver search state](https://github.com/qwer12345qwer12345/HidatoEink/commit/6660ae842ed86faf1303bdb9824945635cad131d)：对求解器的邻接表、BFS 和连通性搜索状态做性能优化；当时生成器仍调用求解器做唯一性检查。
+2. [`3aca292` — feat: generate puzzles without uniqueness checks](https://github.com/qwer12345qwer12345/HidatoEink/commit/3aca292d5ae8cf9dab85538cc50dacc406bdc72d)：从生成器中移除每次隐藏后的唯一性检查，并相应调整生成测试。
+3. [`0cdc67f` — refactor: decouple puzzle generation from solver](https://github.com/qwer12345qwer12345/HidatoEink/commit/0cdc67fce2ca6b58cdc113c2aa8c2b4dc84856f5)：进一步移除生成器对求解器的依赖注入。
+
+旧版生成器的源码注释记录了当时的主要困难：随机隐藏容易产生较大的线索间隔，令求解验证代价增高，线索压缩难以达到预期比例；因此曾尝试按线索邻居数量优先隐藏。**这些记录反映历史实现的性能/目标冲突，不代表已经定位并证实求解器的唯一性判断存在错误。**当前也没有将唯一性作为测试通过标准。
+
+如果以后重新启用唯一解生成，建议先在小棋盘上用独立穷举器交叉验证求解结果，再对不同尺寸、难度和随机种子测量生成耗时、实际线索比例、唯一解验证成功率及超预算比例；最后再决定是否让唯一解成为所有关卡的硬约束。
 
 ## 项目结构
 
-```
+```text
 app/src/main/java/com/eink/hidato/
-├── HidatoApp.kt                 # @HiltAndroidApp
-├── MainActivity.kt              # @AndroidEntryPoint + Compose 入口
-├── domain/                      # 纯 Kotlin 领域层（可 JVM 单测）
-│   ├── Grids.kt                 # 8 方向几何工具 / Puzzle / GameState / GameEngine 规则引擎
-│   ├── HamiltonianPaths.kt      # 蛇形路径 + 合法性校验
-│   ├── HidatoSolver.kt          # CSP 求解器（前向检查 / MRV / 距离剪枝 / 连通性剪枝 / 双解早停）
-│   └── PuzzleGenerator.kt       # 合法路径生成 → 按难度比例隐藏线索
+├── HidatoApp.kt                 # Hilt 应用入口
+├── MainActivity.kt              # Compose 界面入口
+├── domain/
+│   ├── Grids.kt                 # 几何工具、Puzzle、GameState、GameEngine
+│   ├── HamiltonianPaths.kt      # 随机 Warnsdorff 路径生成与校验
+│   ├── HidatoSolver.kt          # 保留的 CSP 求解器（不参与当前出题）
+│   └── PuzzleGenerator.kt       # 随机路径 + 按目标比例隐藏线索
 ├── data/
-│   ├── db/                      # Room：GameSaveEntity / GameSaveDao / HidatoDatabase
-│   ├── GameRepository.kt        # 单一 Room 保存入口，Mutex 按调用顺序读写
-│   ├── SettingsRepository.kt    # DataStore Preferences：行列尺寸与难度
-│   └── GameSaveMapper.kt        # GameState <-> Room 实体
-├── di/AppModule.kt              # Hilt 模块（数据库 / 应用级协程作用域）
+│   ├── db/                      # Room 数据库、DAO、存档实体
+│   ├── GameRepository.kt        # 单槽位存档读写；Mutex 串行化
+│   ├── SettingsRepository.kt    # DataStore 设置与教程完成状态
+│   └── GameSaveMapper.kt        # GameState 与 Room 实体映射
+├── di/AppModule.kt              # Hilt 数据库与协程作用域模块
 └── ui/
-    ├── theme/Theme.kt           # Material 3 默认浅色 / 深色配色
-    ├── common/EinkButton.kt     # Material 按钮（触摸区域 ≥48dp）
-    ├── menu/                    # 主界面（新建游戏 + 继续游戏）
-    ├── game/                    # 游戏界面（GameViewModel / GameScreen / BoardCanvas）
+    ├── theme/Theme.kt           # Material 3 / 系统动态配色
+    ├── common/EinkButton.kt     # 通用按钮
+    ├── menu/                    # 新建游戏和继续游戏
+    ├── game/                    # 游戏界面、ViewModel 和棋盘
+    ├── TutorialDialog.kt        # 玩法教程
     └── AppNav.kt                # Navigation Compose 路由
 ```
 
-## 核心算法说明
+## 进度保存与已知限制
 
-1. **完整路径**：蛇形路径保证 100% 有解且 O(M×N)；随后随机执行 50~200 次
-   段反转，每次突变后校验仍为合法 Hamiltonian 路径。
-2. **求解器**：CSP 框架。前向检查（放置 k 后 k+1 必须有候选）、MRV 值排序
-   （候选按到下一线索的切比雪夫距离升序）、距离剪枝（预计算 nextClue，O(1) 判断）、
-   连通性剪枝（每 4 步 flood fill，剩余空格必须连通）、双解早停（数到第 2 个解即停）。
-3. **线索压缩**：初始全部数字可见（1 与终点强制保留），按随机顺序逐个尝试隐藏，
-   隐藏后求解器验证唯一解，多解即恢复；循环至无数字可隐藏，得到极简线索集。
-4. **难度回填**：简单回填 50%~70%、中等 25%~40%、困难 0%（极简线索集本身）。
+- **Room 单槽位存档**：保存棋盘尺寸、难度、完整答案路径、初始线索、已揭示提示、玩家填数顺序、进度及统计数据；开始新关卡时覆盖旧存档。
+- **自动保存**：正确填数、错误计数变化、撤销、提示、切换可见数字焦点等状态变化会触发保存；通关后等待存档写入成功才显示结算。
+- **读写顺序**：保存任务在应用级协程作用域中运行，并通过 Mutex 串行化；读取会等待此前已入队的写入操作。
+- **重置本关**：当前**仅重置内存、不立即保存**。如果重置后未进行其他会触发保存的操作就退出，重新进入时可能恢复旧进度。
+- **焦点恢复**：当前存档**不单独保存 `focusedCell`**；恢复时默认选中玩家最后填写的格子，而非退出前最后点击的线索。
+- **DataStore**：记录上次选择的行列尺寸和难度，以及是否已完成或跳过首次教程。
 
-## 持久化策略
+## 本地构建与测试
 
-- **Room**（`game_saves` 单槽位）：行列数、完整解路径、初始线索、提示已显示数字、
-  玩家路径、当前数字、错误计数、提示计数、是否完成、更新时间。
-- **保存时机**：连接、错误点击、撤销、提示与通关统一保存；**重置本关不保存**。
-- **顺序**：不再防抖，写入在应用级作用域按调用顺序执行；读取等待前面的写入完成。
-- **结算**：通关存档写入成功后才显示结算，失败时显示保存错误。
-- **恢复**：新关卡落库后将 SavedStateHandle 的模式改为继续，进程重建读取原关卡；
-  难度从存档恢复，损坏存档显示失败页面。存在未完成游戏时主界面“继续游戏”高亮。
-- **DataStore**：记住用户上次设置的行列尺寸与难度。
+准备 JDK 17、Android SDK（compileSdk 34 / build-tools 34.0.0），并在项目根目录的 `local.properties` 中配置 Android SDK 路径（如 `sdk.dir=/path/to/Android/Sdk`）。
 
+```bash
+# 编译 Release APK
+./gradlew assembleRelease
+
+# APK 路径
+# app/build/outputs/apk/release/app-release.apk
+
+# 运行本地 JVM 单元测试
+./gradlew test
+```
+
+当前 Release 配置开启 R8 代码压缩与资源裁剪，**但使用调试签名**，适合本地安装测试，不适合作为正式发布签名。构建脚本目前还限制了 `arm64-v8a` ABI。
+
+测试代码覆盖路径合法性、部分求解器行为、线索比例和游戏规则等；**不声称自动生成的关卡具有唯一解**。
+
+## 后续可改进方向
+
+- 验证求解器准确性与性能，评估唯一解生成的可行方案。
+- 为墨水屏提供可选的高对比度黑白主题，以及经过设备验证的刷新适配。
+- 减少大棋盘重组及重复状态计算带来的开销。
+- 让重置状态与焦点恢复的持久化行为更符合用户预期。
