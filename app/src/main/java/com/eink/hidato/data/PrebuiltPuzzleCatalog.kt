@@ -32,6 +32,7 @@ class PrebuiltPuzzleCatalog @Inject constructor(
             level == difficulty && puzzle.rows == rows && puzzle.cols == cols
         }
         if (options.isEmpty()) return null
-        return options.random(random).second
+        val chosen = options.random(random).second
+        return Puzzle(chosen.rows, chosen.cols, chosen.path.copyOf(), chosen.clues.copyOf())
     }
 }
