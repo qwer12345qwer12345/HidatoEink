@@ -181,6 +181,15 @@ class MinimumClueOptimizerTest {
             BitSet().apply { set(8); set(9) },
         )
         assertEquals(3, optimiser.disjointWitnessLowerBound(disjoint))
+        val triangle = listOf(
+            BitSet().apply { set(2); set(3) },
+            BitSet().apply { set(3); set(4) },
+            BitSet().apply { set(2); set(4) },
+        )
+        assertEquals(1, optimiser.disjointWitnessLowerBound(triangle))
+        assertEquals(2, optimiser.coverageWitnessLowerBound(triangle))
+        assertEquals(2, optimiser.witnessLowerBound(triangle))
+        assertEquals(0, optimiser.witnessLowerBound(emptyList()))
     }
 
     private fun cluesForMask(mask: Int): BooleanArray {
