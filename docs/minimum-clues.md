@@ -20,7 +20,7 @@
 相关论文（方法借鉴，不声称 Sudoku 的数字结论适用于 Hidato）：
 
 - McGuire, Tugemann & Civario, *There Is No 16-Clue Sudoku: Solving the Sudoku Minimum Number of Clues Problem via Hitting Set Enumeration*, Experimental Mathematics 23(2), 2014. DOI: https://doi.org/10.1080/10586458.2013.870056
-- Jussila et al. 相关 bilevel 最少线索建模实现：https://github.com/gtjusila/minimum-sudoku
+- Tjusila、Besançon、Turner 与 Koch，*How many clues to give? A bilevel formulation for the minimum Sudoku clue problem*（Operations Research Letters, 2024，DOI: https://doi.org/10.1016/j.orl.2024.107105），相关实现：https://github.com/gtjusila/minimum-sudoku
 
 ## 为什么不枚举所有可能的 T？
 
