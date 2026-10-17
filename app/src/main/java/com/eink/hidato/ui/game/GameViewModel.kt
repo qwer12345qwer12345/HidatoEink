@@ -45,7 +45,7 @@ class GameViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val gameRepository: GameRepository,
     private val puzzleGenerator: PuzzleGenerator,
-    private val prebuiltPuzzleCatalog: PrebuiltPuzzleCatalog,
+    private val prebuiltPuzzleCatalog: PrebuiltPuzzleCatalog? = null,
 ) : ViewModel() {
 
     private val mode: String = savedStateHandle["mode"] ?: MODE_NEW
@@ -73,7 +73,7 @@ class GameViewModel @Inject constructor(
                     }
                 } else {
                     val puzzle = withContext(Dispatchers.Default) {
-                        prebuiltPuzzleCatalog.choose(rowsArg, colsArg, difficulty)
+                        prebuiltPuzzleCatalog?.choose(rowsArg, colsArg, difficulty)
                             ?: puzzleGenerator.generate(rowsArg, colsArg, difficulty)
                     }
                     val fresh = GameState(
