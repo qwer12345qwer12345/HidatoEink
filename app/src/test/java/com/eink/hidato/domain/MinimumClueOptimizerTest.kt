@@ -137,6 +137,52 @@ class MinimumClueOptimizerTest {
             row * cols + if (row % 2 == 0) column else cols - 1 - column
         }
 
+    @Test
+    fun `disjoint alternative sets certify a minimum without master search`() {
+        val path = intArrayOf(14, 15, 11, 7, 3, 2, 1, 0, 4, 8, 12, 13, 10, 5, 9, 6)
+        val clues = BooleanArray(17)
+        for (n in intArrayOf(1, 11, 15, 16)) clues[n] = true
+        val result = MinimumClueOptimizer().optimize(
+            Puzzle(4, 4, path, clues),
+            timeLimitMillis = 5_000,
+            oracleNodeLimit = 5_000_000,
+        )
+        assertTrue(result.optimalityProven)
+        assertEquals(4, result.finalClues)
+        assertEquals(4, result.certifiedLowerBoundClues)
+        assertEquals("The disjoint-path bound alone matches a unique upper bound", 0L, result.masterNodes)
+        assertEquals("No second search is required", 1, result.solverCalls)
+    }
+
+    @Test
+    fun `disjoint witness packing never overestimates minimum hitting set`() {
+        val optimiser = MinimumClueOptimizer()
+        val random = kotlin.random.Random(2707)
+        repeat(100) {
+            val cuts = (0 until 7).map {
+                val cut = BitSet(9)
+                repeat(3) { cut.set(2 + random.nextInt(7)) }
+                cut
+            }
+            val lowerBound = optimiser.disjointWitnessLowerBound(cuts)
+            val exhaustiveMinimum = (0 until 128)
+                .filter { mask -> cuts.all { cut ->
+                    (2..8).any { n -> (mask and (1 shl (n - 2))) != 0 && cut.get(n) }
+                } }
+                .minOf { Integer.bitCount(it) }
+            assertTrue(
+                "Every disjoint packing needs at least that many distinct chosen digits",
+                lowerBound <= exhaustiveMinimum,
+            )
+        }
+        val disjoint = listOf(
+            BitSet().apply { set(2); set(3) },
+            BitSet().apply { set(5); set(6) },
+            BitSet().apply { set(8); set(9) },
+        )
+        assertEquals(3, optimiser.disjointWitnessLowerBound(disjoint))
+    }
+
     private fun cluesForMask(mask: Int): BooleanArray {
         val clues = BooleanArray(10)
         clues[1] = true
