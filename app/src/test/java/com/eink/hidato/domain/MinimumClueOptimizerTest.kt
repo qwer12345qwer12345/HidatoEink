@@ -1,5 +1,6 @@
 package com.eink.hidato.domain
 
+import java.util.BitSet
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -81,13 +82,60 @@ class MinimumClueOptimizerTest {
         for (start in 1 until path.size - 2) {
             for (end in start + 1 until path.size - 1) {
                 val reversed = path.copyOf().apply { reverse(start, end + 1) }
-                val difference = (2 until path.size)
-                    .filter { reversed[it - 1] != path[it - 1] }
-                    .fold(0L) { mask, number -> mask or (1L shl (number - 2)) }
+                val difference = BitSet(path.size + 1)
+                for (number in 2 until path.size) {
+                    if (reversed[number - 1] != path[number - 1]) difference.set(number)
+                }
                 if (difference in cuts) assertTrue(HamiltonianPaths.isValid(reversed, 3, 3))
             }
         }
     }
+
+    @Test
+    fun `bitsets distinguish clues beyond the old 64-cell ceiling`() {
+        // No special-casing 8x8, 9x8 or 15x15: all use the same code path.
+        for ((rows, cols) in listOf(8 to 8, 9 to 8, 15 to 15)) {
+            val path = snakePath(rows, cols)
+            val n = rows * cols
+            assertTrue(HamiltonianPaths.isValid(path, rows, cols))
+            val puzzle = Puzzle(rows, cols, path, BooleanArray(n + 1) { it > 0 })
+            val result = MinimumClueOptimizer().optimize(
+                puzzle,
+                timeLimitMillis = 10_000,
+                oracleNodeLimit = 1_000_000,
+                oracleTimeSliceMillis = 3_000,
+                maxMasterNodes = 1,
+            )
+            // The tight master budget may NOT produce a proof. The input
+            // full-clue puzzle remains the safe certified upper bound.
+            assertFalse(result.optimalityProven)
+            assertEquals(n, result.finalClues)
+            assertEquals(n, (1..n).count(result.puzzle::isClueVisible))
+        }
+    }
+
+    @Test
+    fun `reversal masks preserve digit positions above 64 without wraparound`() {
+        val rows = 15
+        val cols = 15
+        val path = snakePath(rows, cols)
+        val witnesses = MinimumClueOptimizer().segmentReversalWitnesses(path, cols)
+        assertTrue("Large boards should produce nontrivial reversal constraints", witnesses.isNotEmpty())
+        assertTrue("Some constraints must reference digits above 64",
+            witnesses.any { it.nextSetBit(65) >= 65 })
+        // Bit 65 and bit 1 are different: the previous Long approach would wrap.
+        val mask = BitSet(226)
+        mask.set(65)
+        assertFalse(mask.get(1))
+        assertTrue(mask.get(65))
+    }
+
+    private fun snakePath(rows: Int, cols: Int): IntArray =
+        IntArray(rows * cols) { i ->
+            val row = i / cols
+            val column = i % cols
+            row * cols + if (row % 2 == 0) column else cols - 1 - column
+        }
 
     private fun cluesForMask(mask: Int): BooleanArray {
         val clues = BooleanArray(10)
