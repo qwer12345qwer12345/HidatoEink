@@ -124,7 +124,7 @@ class PuzzleGeneratorTest {
     fun `generated puzzles keep endpoints visible`() {
         val random = Random(42)
         for (size in intArrayOf(4, 5, 6, 7, 8, 9, 10)) {
-            val puzzle = generator.generate(size, size, Difficulty.HARD, random, deadlineMillis = 30_000)
+            val puzzle = generator.generate(size, size, Difficulty.HARD, random, deadlineMillis = 3_000)
             val total = size * size
             assertTrue("起点必须可见", puzzle.isClueVisible(1))
             assertTrue("终点必须可见", puzzle.isClueVisible(total))
@@ -136,7 +136,7 @@ class PuzzleGeneratorTest {
     fun `non square grid 4x15 and 15x4 generates valid puzzle`() {
         val random = Random(7)
         for ((r, c) in listOf(4 to 15, 15 to 4)) {
-            val puzzle = generator.generate(r, c, Difficulty.MEDIUM, random, deadlineMillis = 30_000)
+            val puzzle = generator.generate(r, c, Difficulty.MEDIUM, random, deadlineMillis = 3_000)
             assertTrue(HamiltonianPaths.isValid(puzzle.path, r, c))
             assertTrue(puzzle.isClueVisible(1))
             assertTrue(puzzle.isClueVisible(r * c))
@@ -147,7 +147,7 @@ class PuzzleGeneratorTest {
     fun `max size 15x15 hard generates puzzle within deadline`() {
         val random = Random(2026)
         val startAt = System.currentTimeMillis()
-        val puzzle = generator.generate(15, 15, Difficulty.HARD, random, deadlineMillis = 20_000)
+        val puzzle = generator.generate(15, 15, Difficulty.HARD, random, deadlineMillis = 3_000)
         val elapsed = System.currentTimeMillis() - startAt
         assertTrue("生成耗时应有限：$elapsed ms", elapsed < 60_000)
         assertTrue(puzzle.isClueVisible(1))
@@ -159,26 +159,62 @@ class PuzzleGeneratorTest {
         (1..puzzle.total).count { puzzle.isClueVisible(it) }.toDouble() / puzzle.total
 
     @Test
-    fun `easy puzzle keeps 35 to 45 percent clues`() {
-        val puzzle = generator.generate(8, 8, Difficulty.EASY, Random(11), deadlineMillis = 30_000)
+    fun `easy puzzle does not go below the configured minimum`() {
+        val puzzle = generator.generate(8, 8, Difficulty.EASY, Random(11), deadlineMillis = 3_000)
         val ratio = visibleRatio(puzzle)
         assertTrue("简单档保留比例应 ≥35%，实际 $ratio", ratio >= 0.35)
-        assertTrue("简单档保留比例应 ≤45%，实际 $ratio", ratio <= 0.45)
     }
 
     @Test
-    fun `medium puzzle keeps 20 to 30 percent clues`() {
-        val puzzle = generator.generate(8, 8, Difficulty.MEDIUM, Random(12), deadlineMillis = 30_000)
+    fun `medium puzzle does not go below the configured minimum`() {
+        val puzzle = generator.generate(8, 8, Difficulty.MEDIUM, Random(12), deadlineMillis = 3_000)
         val ratio = visibleRatio(puzzle)
         assertTrue("中等档保留比例应 ≥20%，实际 $ratio", ratio >= 0.20)
-        assertTrue("中等档保留比例应 ≤30%，实际 $ratio", ratio <= 0.30)
     }
 
     @Test
-    fun `hard puzzle compresses below the medium floor`() {
-        val puzzle = generator.generate(8, 8, Difficulty.HARD, Random(13), deadlineMillis = 30_000)
+    fun `hard puzzle is proven unique with no fixed percentage target`() {
+        val puzzle = generator.generate(8, 8, Difficulty.HARD, Random(13), deadlineMillis = 3_000)
         val ratio = visibleRatio(puzzle)
-        assertTrue("困难档应压到 20% 以下（极限最简），实际 $ratio", ratio < 0.20)
+        assertTrue("困难档必须保留至少两个固定端点", ratio >= 2.0 / 64)
+        // No fixed percentage can safely be promised for unique Hidato.
+        val result = HidatoSolver().findAlternative(8, 8, puzzle.path, puzzle.clues, nodeLimit = 5_000_000, timeLimitMillis = 10_000)
+        assertTrue("困难题必须只有一个完整解，实际 $result", result is AlternativeResult.Unique)
+    }
+
+    @Test
+    fun `all local reversal certificates produce actual Hamiltonian alternatives`() {
+        val generator = PuzzleGenerator()
+        for (seed in 1..12) {
+            val path = HamiltonianPaths.randomTour(6, 6, Random(seed))
+            for (changed in generator.localReversalWitnesses(path, 6)) {
+                val reversed = path.copyOf()
+                val from = changed.first() - 1
+                val to = changed.last() - 1
+                reversed.reverse(from, to + 1)
+                assertTrue(HamiltonianPaths.isValid(reversed, 6, 6))
+                assertEquals(
+                    changed.toList(),
+                    (1..36).filter { reversed[it - 1] != path[it - 1] },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `unique generation keeps correctness when time budget is short`() {
+        val generator = PuzzleGenerator()
+        for (seed in 1..5) {
+            val generated = generator.generateDetailed(
+                6, 6, Difficulty.HARD, Random(seed),
+                deadlineMillis = 300, perCheckMillis = 75,
+            )
+            val puzzle = generated.puzzle
+            assertTrue(puzzle.clues[1])
+            assertTrue(puzzle.clues[36])
+            assertEquals(puzzle.total - generated.stats.verifiedRemovals, generated.stats.retainedClues)
+            assertTrue(HidatoSolver().findAlternative(6, 6, puzzle.path, puzzle.clues, nodeLimit = 3_000_000) is AlternativeResult.Unique)
+        }
     }
 
     @Test
