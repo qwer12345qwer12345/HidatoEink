@@ -17,7 +17,9 @@ jobs:
       - name: Use runner Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+          sdkmanager_path="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$sdkmanager_path"
+          "$sdkmanager_path" 'platforms;android-34' 'build-tools;34.0.0'
       - name: Compile and run JVM unit tests
         run: bash ./gradlew :app:testDebugUnitTest --no-daemon
       - name: Validate every bundled puzzle
