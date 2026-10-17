@@ -77,16 +77,14 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
         var solverRejected = 0
         var unknown = 0
         var calls = 0
-        var completedPass = true
+        var attempted = 0
         fun elapsed(): Long = (System.nanoTime() - started) / 1_000_000L
 
         for (number in order) {
             if (visible <= minimum) break
             val remaining = deadlineMillis - elapsed()
-            if (remaining <= 0) {
-                completedPass = false
-                break
-            }
+            if (remaining <= 0) break
+            attempted++
             clues[number] = false
             // If one already known alternative agrees with every visible
             // clue, there are definitely at least two valid solutions.
@@ -118,7 +116,7 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
         }
         // A fully given puzzle is unique. We only remove clues after a
         // complete uniqueness proof, so this invariant holds on timeout too.
-        val stats = GenerationStats(visible, verified, fastRejected, solverRejected, unknown, calls, completedPass, elapsed())
+        val stats = GenerationStats(visible, verified, fastRejected, solverRejected, unknown, calls, attempted == order.size, elapsed())
         return GeneratedPuzzle(Puzzle(rows, cols, path.copyOf(), clues), stats)
     }
 
