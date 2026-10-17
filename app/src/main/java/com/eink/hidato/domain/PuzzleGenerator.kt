@@ -94,7 +94,7 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
                 continue
             }
             calls++
-            when (val result = solver.findAlternative(
+            when (solver.findAlternative(
                 rows, cols, path, clues,
                 nodeLimit = nodeLimit,
                 timeLimitMillis = minOf(perCheckMillis, remaining),
