@@ -28,3 +28,7 @@ jobs:
           # GitHub runner has kotlinc available; verify rather than silently skip.
           command -v kotlinc
           bash tools/offline/verify-catalog.sh
+      - name: Prove 4x4 medium minimum and reverify emitted puzzle
+        run: |
+          bash tools/offline/minimize-catalog.sh app/src/main/assets/unique-puzzles.tsv 2 30000 > /tmp/hidato-optimized.tsv
+          bash tools/offline/verify-catalog.sh /tmp/hidato-optimized.tsv
