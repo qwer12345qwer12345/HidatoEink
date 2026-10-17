@@ -163,7 +163,6 @@ class PuzzleGeneratorTest {
         val puzzle = generator.generate(8, 8, Difficulty.EASY, Random(11), deadlineMillis = 30_000)
         val ratio = visibleRatio(puzzle)
         assertTrue("简单档保留比例应 ≥35%，实际 $ratio", ratio >= 0.35)
-        assertTrue("只有完成足够多的唯一性验证才允许减少线索", ratio <= 1.0)
     }
 
     @Test
@@ -171,7 +170,6 @@ class PuzzleGeneratorTest {
         val puzzle = generator.generate(8, 8, Difficulty.MEDIUM, Random(12), deadlineMillis = 30_000)
         val ratio = visibleRatio(puzzle)
         assertTrue("中等档保留比例应 ≥20%，实际 $ratio", ratio >= 0.20)
-        assertTrue("唯一解优先于目标线索比例", ratio <= 1.0)
     }
 
     @Test
