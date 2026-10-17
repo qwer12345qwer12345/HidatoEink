@@ -7,7 +7,8 @@ import kotlin.random.Random
 data class GenerationStats(
     val retainedClues: Int,
     val verifiedRemovals: Int,
-    val rejectedByWitness: Int,
+    val rejectedByLocalReversal: Int,
+    val rejectedByCachedAlternative: Int,
     val rejectedBySolver: Int,
     val unresolvedChecks: Int,
     val solverCalls: Int,
@@ -70,10 +71,12 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
             Difficulty.MEDIUM -> ceil(total * 0.20).toInt().coerceAtLeast(2)
             Difficulty.HARD -> 2 // lower bound, NOT a claim that two clues imply uniqueness
         }
-        val witnesses = localReversalWitnesses(path, cols).toMutableList()
+        val localReversals = localReversalWitnesses(path, cols)
+        val discoveredAlternatives = ArrayList<IntArray>()
         val order = (2 until total).shuffled(random)
         var verified = 0
-        var fastRejected = 0
+        var localRejected = 0
+        var cachedRejected = 0
         var solverRejected = 0
         var unknown = 0
         var calls = 0
@@ -88,8 +91,13 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
             clues[number] = false
             // If one already known alternative agrees with every visible
             // clue, there are definitely at least two valid solutions.
-            if (witnesses.any { difference -> difference.none { clues[it] } }) {
-                fastRejected++
+            if (localReversals.any { difference -> difference.none { clues[it] } }) {
+                localRejected++
+                clues[number] = true
+                continue
+            }
+            if (discoveredAlternatives.any { difference -> difference.none { clues[it] } }) {
+                cachedRejected++
                 clues[number] = true
                 continue
             }
@@ -105,7 +113,7 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
                 }
                 is AlternativeResult.Found -> {
                     solverRejected++
-                    witnesses.add((1..total).filter { result.path[it - 1] != path[it - 1] }.toIntArray())
+                    discoveredAlternatives.add((1..total).filter { result.path[it - 1] != path[it - 1] }.toIntArray())
                     clues[number] = true
                 }
                 is AlternativeResult.Unknown -> {
@@ -116,7 +124,7 @@ class PuzzleGenerator(private val solver: HidatoSolver = HidatoSolver()) {
         }
         // A fully given puzzle is unique. We only remove clues after a
         // complete uniqueness proof, so this invariant holds on timeout too.
-        val stats = GenerationStats(visible, verified, fastRejected, solverRejected, unknown, calls, attempted == order.size, elapsed())
+        val stats = GenerationStats(visible, verified, localRejected, cachedRejected, solverRejected, unknown, calls, attempted == order.size, elapsed())
         return GeneratedPuzzle(Puzzle(rows, cols, path.copyOf(), clues), stats)
     }
 
