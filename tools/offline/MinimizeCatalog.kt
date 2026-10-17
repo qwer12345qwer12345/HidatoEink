@@ -33,6 +33,7 @@ fun main(args: Array<String>) {
     System.err.println(
         "size=${original.rows}x${original.cols} difficulty=$difficulty " +
         "clues=${report.initialClues}->${report.finalClues} " +
+        "proved-lower-bound=${report.certifiedLowerBoundClues} " +
         "status=${report.stopped} proof=${report.optimalityProven} " +
         "cuts=${report.constraints} alternatives=${report.alternativeTours} " +
         "oracleCalls=${report.solverCalls} masterNodes=${report.masterNodes} " +
