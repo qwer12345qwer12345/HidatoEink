@@ -22,7 +22,6 @@ fun main(args: Array<String>) {
     val (difficulty, original) = requireNotNull(PrebuiltPuzzleCodec.parse(records[entry - 1])) {
         "Invalid entry number $entry"
     }
-    require(original.total <= 64) { "Exact Long-mask model supports up to 64 squares" }
 
     val report = MinimumClueOptimizer().optimize(
         original,
