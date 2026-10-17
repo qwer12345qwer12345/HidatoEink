@@ -88,7 +88,7 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
             // Each pairwise-disjoint alternative-path difference set needs
             // a distinct given digit. If that count reaches the certified
             // upper bound, minimality follows without searching the master.
-            minimumOptional = disjointWitnessLowerBound(conflicts)
+            minimumOptional = witnessLowerBound(conflicts)
             if (minimumOptional >= incumbent.cardinality()) {
                 stopped = Stopped.PROVED_MINIMUM
                 break
