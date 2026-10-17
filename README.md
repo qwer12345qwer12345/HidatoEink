@@ -99,6 +99,9 @@ bash tools/offline/pregenerate.sh 8 8 HARD 10 10000 42
 
 # 将成功验证的题目追加到 APK 内置题库
 bash tools/offline/pregenerate.sh 8 8 HARD 10 10000 42 >> app/src/main/assets/unique-puzzles.tsv
+
+# 验证整个内置题库：如果有坏数据、多解或验证超时，则以失败退出
+bash tools/offline/verify-catalog.sh
 ```
 
 运行日志输出到 stderr，只有通过最终验证的数据才写入 stdout。重复运行可能产生相同题目；目前没有自动去重。TSV 的完整路径索引是从 0 开始，给定数字编号从 1 开始。
@@ -171,7 +174,7 @@ app/src/main/java/com/eink/hidato/
 
 当前 Release 配置开启 R8 代码压缩与资源裁剪，**但使用调试签名**，适合本地安装测试，不适合作为正式发布签名。构建脚本目前还限制了 `arm64-v8a` ABI。
 
-测试代码覆盖路径合法性、求解器与简单暴力枚举的结果交叉验证、第二答案的合法性、超预算处理、线索唯一性以及游戏规则。内置的 18 道题目还在离线生成流程中完成最终唯一性验证。尚需在目标 Android/墨水屏设备上执行构建与性能测试。
+测试代码覆盖路径合法性、求解器与简单暴力枚举的结果交叉验证、第二答案的合法性、超预算处理、线索唯一性以及游戏规则。可用 `bash tools/offline/verify-catalog.sh` 逐条重新证明内置的 18 道题目只有一个解。尚需在目标 Android/墨水屏设备上执行构建与性能测试。
 
 ## 后续可改进方向
 
