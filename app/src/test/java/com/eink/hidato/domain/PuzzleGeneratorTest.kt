@@ -183,6 +183,25 @@ class PuzzleGeneratorTest {
     }
 
     @Test
+    fun `all local reversal certificates produce actual Hamiltonian alternatives`() {
+        val generator = PuzzleGenerator()
+        for (seed in 1..12) {
+            val path = HamiltonianPaths.randomTour(6, 6, Random(seed))
+            for (changed in generator.localReversalWitnesses(path, 6)) {
+                val reversed = path.copyOf()
+                val from = changed.first() - 1
+                val to = changed.last() - 1
+                reversed.reverse(from, to + 1)
+                assertTrue(HamiltonianPaths.isValid(reversed, 6, 6))
+                assertEquals(
+                    changed.toList(),
+                    (1..36).filter { reversed[it - 1] != path[it - 1] },
+                )
+            }
+        }
+    }
+
+    @Test
     fun `unique generation keeps correctness when time budget is short`() {
         val generator = PuzzleGenerator()
         for (seed in 1..5) {
