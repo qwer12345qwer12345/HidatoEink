@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# JDK 17 + Kotlin 1.9.x CLI; performs exact optimization up to 64 cells.
+# JDK 17 + Kotlin 1.9.x CLI; board size changes cost, not correctness.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 tmp_dir="$(mktemp -d)"
