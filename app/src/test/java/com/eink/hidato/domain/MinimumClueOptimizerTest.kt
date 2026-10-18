@@ -192,6 +192,104 @@ class MinimumClueOptimizerTest {
         assertEquals(0, optimiser.witnessLowerBound(emptyList()))
     }
 
+    @Test
+    fun `local rerouting cuts exactly match independent valid full tours`() {
+        val examples = paths.map { it to 3 } + listOf(
+            intArrayOf(2, 3, 7, 11, 15, 14, 10, 13, 12, 8, 9, 6, 1, 0, 5, 4) to 4,
+        )
+        val optimizer = MinimumClueOptimizer()
+        for ((path, cols) in examples) {
+            val rows = path.size / cols
+            assertTrue(HamiltonianPaths.isValid(path, rows, cols))
+            val independentlyValidated = LinkedHashSet<BitSet>()
+            // Independent swap-based permutation enumeration, with the
+            // complete Hamiltonian tour checked at every permutation leaf.
+            for (length in 2..minOf(6, path.size - 2)) {
+                for (start in 1 until path.size - length) {
+                    val candidate = path.copyOf()
+                    val endExclusive = start + length
+                    fun permute(index: Int) {
+                        if (index == endExclusive) {
+                            if (!HamiltonianPaths.isValid(candidate, rows, cols)) return
+                            val changed = BitSet(path.size + 1)
+                            for (i in 1 until path.size - 1) {
+                                if (candidate[i] != path[i]) changed.set(i + 1)
+                            }
+                            if (!changed.isEmpty) independentlyValidated.add(changed)
+                            return
+                        }
+                        for (i in index until endExclusive) {
+                            val temp = candidate[index]
+                            candidate[index] = candidate[i]
+                            candidate[i] = temp
+                            permute(index + 1)
+                            candidate[i] = candidate[index]
+                            candidate[index] = temp
+                        }
+                    }
+                    permute(start)
+                }
+            }
+            assertEquals(
+                "Every emitted mask must have a fully legal, distinct path witness",
+                independentlyValidated,
+                optimizer.localReroutingWitnesses(path, cols).toSet(),
+            )
+        }
+    }
+
+    @Test
+    fun `local rerouting improves certified catalog lower bounds on eight paths`() {
+        val catalog = listOf(
+            java.io.File("src/main/assets/unique-puzzles.tsv"),
+            java.io.File("app/src/main/assets/unique-puzzles.tsv"),
+        ).firstOrNull { it.isFile } ?: error("Catalog file not found")
+        val optimizer = MinimumClueOptimizer()
+
+        // Independently maintain inclusion-minimal cuts in this test.
+        fun minimize(masks: List<BitSet>): List<BitSet> {
+            val cuts = ArrayList<BitSet>()
+            for (mask in masks) {
+                if (cuts.any { existing ->
+                    val remainder = existing.clone() as BitSet
+                    remainder.andNot(mask)
+                    remainder.isEmpty
+                }) continue
+                cuts.removeAll { existing ->
+                    val remainder = mask.clone() as BitSet
+                    remainder.andNot(existing)
+                    remainder.isEmpty
+                }
+                cuts.add(mask.clone() as BitSet)
+            }
+            return cuts
+        }
+
+        var total = 0
+        var improved = 0
+        for (line in catalog.readLines().filter { it.isNotBlank() && !it.startsWith("#") }) {
+            val fields = line.split('\t')
+            val rows = fields[0].toInt()
+            val cols = fields[1].toInt()
+            val path = fields[3].split(',').map(String::toInt).toIntArray()
+            assertTrue(HamiltonianPaths.isValid(path, rows, cols))
+            val reversals = optimizer.segmentReversalWitnesses(path, cols)
+            val before = optimizer.witnessLowerBound(minimize(reversals))
+            val after = optimizer.witnessLowerBound(
+                minimize(reversals + optimizer.localReroutingWitnesses(path, cols)),
+            )
+            assertTrue("Adding real alternatives cannot weaken the lower bound", after >= before)
+            if (after > before) improved++
+            if (rows == 15 && cols == 15) {
+                assertEquals(38, before)
+                assertEquals(42, after)
+            }
+            total++
+        }
+        assertEquals(18, total)
+        assertEquals(8, improved)
+    }
+
     private fun cluesForMask(mask: Int): BooleanArray {
         val clues = BooleanArray(10)
         clues[1] = true

@@ -79,6 +79,12 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
             addConstraint(conflicts, witness)
         }
 
+        // Every bounded local rerouting is a real alternative full tour,
+        // hence a necessary hitting-set constraint (never a uniqueness proof).
+        for (witness in localReroutingWitnesses(initial.path, initial.cols)) {
+            addConstraint(conflicts, witness)
+        }
+
         var alternatives = 0
         var masterNodes = 0L
         var stopped = Stopped.TIME_LIMIT
@@ -209,6 +215,49 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
             }
         }
         return witnesses
+    }
+
+    /**
+     * Reorder the SAME cells inside each interior digit window (2..6 cells).
+     * The two boundary cells stay fixed; any adjacent permutation therefore
+     * produces a different, fully legal Hamiltonian tour with fixed endpoints.
+     * The changed digits form a necessary (not sufficient) uniqueness cut.
+     *
+     * The window cap is constant: O(N * sum(k*k!), k=2..6) time to enumerate
+     * candidates, excluding later hitting-set cut minimization.
+     */
+    internal fun localReroutingWitnesses(path: IntArray, cols: Int): List<BitSet> {
+        val witnesses = LinkedHashSet<BitSet>()
+        for (length in 2..minOf(6, path.size - 2)) {
+            for (start in 1 until path.size - length) {
+                val cells = path.copyOfRange(start, start + length)
+                val order = IntArray(length)
+                val used = BooleanArray(length)
+                val left = path[start - 1]
+                val right = path[start + length]
+
+                fun enumerate(depth: Int, previous: Int) {
+                    if (depth == length) {
+                        if (!Grids.adjacent(previous, right, cols)) return
+                        val changed = BitSet(path.size + 1)
+                        for (offset in 0 until length) {
+                            if (order[offset] != cells[offset]) changed.set(start + offset + 1)
+                        }
+                        if (!changed.isEmpty) witnesses.add(changed)
+                        return
+                    }
+                    for (i in cells.indices) {
+                        if (used[i] || !Grids.adjacent(previous, cells[i], cols)) continue
+                        used[i] = true
+                        order[depth] = cells[i]
+                        enumerate(depth + 1, cells[i])
+                        used[i] = false
+                    }
+                }
+                enumerate(0, left)
+            }
+        }
+        return witnesses.toList()
     }
 
     /**
