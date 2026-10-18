@@ -155,7 +155,7 @@ class MinimumClueOptimizerTest {
     }
 
     @Test
-    fun `disjoint witness packing never overestimates minimum hitting set`() {
+    fun `combined witness bounds never overestimate minimum hitting set`() {
         val optimiser = MinimumClueOptimizer()
         val random = kotlin.random.Random(2707)
         repeat(100) {
