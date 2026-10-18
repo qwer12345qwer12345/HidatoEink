@@ -11,9 +11,21 @@ import java.util.BitSet
  * either finds a counterexample or certifies uniqueness.
  *
  * BitSet indexes are the digit numbers themselves, independent of board size.
+ *
+ * @param seedLocalReplacements research toggle (issue #6, direction B): seed
+ * the constraint family with every windowed local path replacement (a
+ * generalization of segment reversal) before starting the search.
  */
-class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
+class MinimumClueOptimizer(
+    private val solver: HidatoSolver = HidatoSolver(),
+    private val seedLocalReplacements: Boolean = false,
+) {
     enum class Stopped { PROVED_MINIMUM, TIME_LIMIT, MASTER_NODE_LIMIT, SOLVER_UNKNOWN }
+
+    companion object {
+        internal const val LOCAL_REPLACEMENT_WINDOW = 8
+        internal const val LOCAL_REPLACEMENT_CAP = 64
+    }
 
     data class Result(
         val puzzle: Puzzle,
@@ -77,6 +89,11 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
         val conflicts = ArrayList<BitSet>()
         for (witness in segmentReversalWitnesses(initial.path, initial.cols)) {
             addConstraint(conflicts, witness)
+        }
+        if (seedLocalReplacements) {
+            for (witness in localReplacementWitnesses(initial.path, initial.rows, initial.cols)) {
+                addConstraint(conflicts, witness)
+            }
         }
 
         var alternatives = 0
@@ -209,6 +226,80 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
             }
         }
         return witnesses
+    }
+
+    /**
+     * Direction B: any re-ordering of a bounded window of the tour that
+     * reconnects to the SAME two boundary anchors is another complete valid
+     * Hidato tour, so its difference set is a provably necessary hitting
+     * constraint. Segment reversal is the special two-edge case. The
+     * enumeration is depth-first over the window cells, capped per window so
+     * the seeding cost stays a few milliseconds on 15x15.
+     */
+    internal fun localReplacementWitnesses(
+        path: IntArray,
+        rows: Int,
+        cols: Int,
+        maxWindow: Int = LOCAL_REPLACEMENT_WINDOW,
+        perWindowCap: Int = LOCAL_REPLACEMENT_CAP,
+    ): List<BitSet> = localReplacementTours(path, rows, cols, maxWindow, perWindowCap)
+        .map { differenceMask(path, it) }
+        .filterNot { it.isEmpty }
+
+    /** Full alternative tours behind [localReplacementWitnesses] (test oracle). */
+    internal fun localReplacementTours(
+        path: IntArray,
+        rows: Int,
+        cols: Int,
+        maxWindow: Int = LOCAL_REPLACEMENT_WINDOW,
+        perWindowCap: Int = LOCAL_REPLACEMENT_CAP,
+    ): List<IntArray> {
+        val n = path.size
+        val tours = ArrayList<IntArray>()
+        val used = BooleanArray(maxWindow)
+        val order = IntArray(maxWindow)
+        val window = IntArray(maxWindow)
+        for (start in 1 until n - 2) {
+            val maxEnd = minOf(n - 2, start + maxWindow - 1)
+            for (end in start + 1..maxEnd) {
+                val m = end - start + 1
+                for (k in 0 until m) window[k] = path[start + k]
+                val anchorIn = path[start - 1]
+                val anchorOut = path[end + 1]
+                var emitted = 0
+
+                fun dfs(pos: Int) {
+                    if (emitted >= perWindowCap) return
+                    if (pos == m) {
+                        val tour = path.copyOf()
+                        for (p in 0 until m) tour[start + p] = window[order[p]]
+                        if (!tour.contentEquals(path)) {
+                            tours.add(tour)
+                            emitted++
+                        }
+                        return
+                    }
+                    for (cand in 0 until m) {
+                        if (used[cand]) continue
+                        val cell = window[cand]
+                        if (pos == 0) {
+                            if (!Grids.adjacent(anchorIn, cell, cols)) continue
+                        } else if (!Grids.adjacent(window[order[pos - 1]], cell, cols)) {
+                            continue
+                        }
+                        if (pos == m - 1 && !Grids.adjacent(cell, anchorOut, cols)) continue
+                        used[cand] = true
+                        order[pos] = cand
+                        dfs(pos + 1)
+                        used[cand] = false
+                        if (emitted >= perWindowCap) return
+                    }
+                }
+                used.fill(false)
+                dfs(0)
+            }
+        }
+        return tours
     }
 
     /**

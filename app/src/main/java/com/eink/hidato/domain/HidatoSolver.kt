@@ -14,13 +14,25 @@ sealed interface AlternativeResult {
  * Every given digit reserves its cell throughout the search, including
  * before the DFS reaches that digit. UNKNOWN is never considered unique.
  * Every invocation has its own independent search workspace.
+ *
+ * @param freeSpaceReachability research toggle (issue #6, direction A):
+ * provably-safe geometric reachability pruning. The suffix from any partial
+ * path to the next given digit can only cross cells that are currently free
+ * (unvisited and reserved by no other given); a breadth-first shortest path
+ * over exactly those cells is therefore a valid lower bound on the remaining
+ * edge count, and strictly dominates the pure Chebyshev bound.
  */
-class HidatoSolver {
+open class HidatoSolver(
+    private val freeSpaceReachability: Boolean = false,
+) {
     companion object {
         const val DEFAULT_NODE_LIMIT = 400_000L
+
+        /** Per-candidate BFS only pays off for close targets; farther gaps are covered by the periodic checkpoint. */
+        internal const val CANDIDATE_REACH_BUDGET_CAP = 8
     }
 
-    fun findAlternative(
+    open fun findAlternative(
         rows: Int,
         cols: Int,
         path: IntArray,
@@ -28,7 +40,7 @@ class HidatoSolver {
         nodeLimit: Long = DEFAULT_NODE_LIMIT,
         timeLimitMillis: Long = Long.MAX_VALUE,
     ): AlternativeResult {
-        val search = Search(rows, cols, path, clues, nodeLimit, timeLimitMillis, findAlternative = true, countLimit = 1)
+        val search = Search(rows, cols, path, clues, nodeLimit, timeLimitMillis, findAlternative = true, countLimit = 1, reachability = freeSpaceReachability)
         search.run()
         return when {
             search.alternative != null -> AlternativeResult.Found(search.alternative!!, search.nodes)
@@ -47,7 +59,7 @@ class HidatoSolver {
         nodeLimit: Long = DEFAULT_NODE_LIMIT,
     ): Int {
         require(limit > 0)
-        val search = Search(rows, cols, path, clues, nodeLimit, Long.MAX_VALUE, findAlternative = false, countLimit = limit)
+        val search = Search(rows, cols, path, clues, nodeLimit, Long.MAX_VALUE, findAlternative = false, countLimit = limit, reachability = freeSpaceReachability)
         search.run()
         return if (search.exhausted) -1 else search.solutionCount
     }
@@ -69,6 +81,7 @@ class HidatoSolver {
         timeLimitMillis: Long,
         private val findAlternative: Boolean,
         private val countLimit: Int,
+        private val reachability: Boolean,
     ) {
         private val total = rows * cols
         private val neighbors: Array<IntArray>
@@ -172,6 +185,14 @@ class HidatoSolver {
             if (targetNumber >= 0) {
                 val remainingSteps = targetNumber - nextNumber
                 if (Grids.chebyshev(candidate, givenPosition[targetNumber], cols) > remainingSteps) return
+                // Geometric reachability (direction A): the suffix from the
+                // candidate to the next given may only step on cells that are
+                // free right now, so the free-space BFS distance is a valid
+                // (strictly stronger than Chebyshev) lower bound. Bounded by
+                // the remaining-step budget, the BFS work stays local.
+                if (reachability && remainingSteps <= CANDIDATE_REACH_BUDGET_CAP &&
+                    !reachesTargetWithin(candidate, givenPosition[targetNumber], remainingSteps)
+                ) return
             }
             follow(nextNumber, candidate, differs || candidate != reference[number])
         }
@@ -180,10 +201,56 @@ class HidatoSolver {
             visited[cell] = true
             assignment[number - 1] = cell
             // All unused cells must form one connected suffix in any completion.
-            if (number == total || number % 5 != 0 || remainingConnected(number)) {
+            if (number == total || number % 5 != 0 || suffixStaysFeasible(number, cell)) {
                 dfs(number, cell, differs)
             }
             visited[cell] = false
+        }
+
+        private fun suffixStaysFeasible(used: Int, current: Int): Boolean {
+            if (!remainingConnected(used)) return false
+            if (!reachability) return true
+            // nextGiven[x] is the smallest given STRICTLY BEYOND x; when the
+            // immediate next number is itself a given, its reserved cell is a
+            // mandatory waypoint, not an obstacle, so target that digit.
+            val nextNumber = used + 1
+            val targetNumber = if (givenPosition[nextNumber] >= 0) nextNumber else nextGiven[nextNumber]
+            if (targetNumber < 0) return true
+            return reachesTargetWithin(current, givenPosition[targetNumber], targetNumber - used)
+        }
+
+        /**
+         * True when a path of at most [edgeBudget] edges from [from] to
+         * [target] exists whose intermediate cells are all currently free
+         * (unvisited and reserved by no given). Soundness: any completion
+         * places the numbers strictly between the current one and the target
+         * on distinct cells that are free now and never reserved for another
+         * given, so its prefix towards the target lives in exactly this
+         * subgraph. Level-order BFS shares the workspace buffers with
+         * [remainingConnected]; the stamp isolates concurrent markers.
+         */
+        private fun reachesTargetWithin(from: Int, target: Int, edgeBudget: Int): Boolean {
+            if (from == target) return true
+            if (edgeBudget <= 0) return false
+            val stamp = ++seenStamp
+            var head = 0
+            var tail = 0
+            queue[tail++] = from
+            seen[from] = stamp
+            var depth = 0
+            while (depth < edgeBudget && head < tail) {
+                val levelEnd = tail
+                while (head < levelEnd) {
+                    for (candidate in neighbors[queue[head++]]) {
+                        if (candidate == target) return true
+                        if (seen[candidate] == stamp || visited[candidate] || reservedBy[candidate] != 0) continue
+                        seen[candidate] = stamp
+                        queue[tail++] = candidate
+                    }
+                }
+                depth++
+            }
+            return false
         }
 
         private fun remainingConnected(used: Int): Boolean {
