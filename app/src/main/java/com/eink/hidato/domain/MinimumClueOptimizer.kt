@@ -337,8 +337,20 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
     internal fun witnessLowerBound(cuts: List<BitSet>): Int =
         maxOf(disjointWitnessLowerBound(cuts), coverageWitnessLowerBound(cuts))
 
-    /** Exact minimum-cardinality hitting-set master with a node/time budget. */
-    private class HittingSetMaster(
+    /**
+     * Exact minimum-cardinality hitting-set master with a node/time budget.
+     *
+     * Coverage is accounted incrementally: selecting digit d bumps a
+     * per-constraint hit counter and removes newly covered constraints from
+     * an order-preserving active list, so a search node scans only the still
+     * uncovered constraints instead of every constraint. Traversal order,
+     * answers and node counts are bit-for-bit identical to a full rescan
+     * (verified against a reference rescan implementation in tests).
+     *
+     * Internal visibility: unit tests and the ablation harness drive the
+     * master directly with synthetic hypergraphs.
+     */
+    internal class HittingSetMaster(
         private val constraints: List<BitSet>,
         private val minimumSelected: Int,
         private val maxSelected: Int,
@@ -351,6 +363,52 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
         private var unknown = false
         private var found: BitSet? = null
         private lateinit var visited: HashSet<BitSet>
+
+        /** Static cut sizes; the smallest-uncovered-cut rule reads these. */
+        private val cardinalities = IntArray(constraints.size) { constraints[it].cardinality() }
+
+        /** For every digit, the indices of the constraints containing it. */
+        private val incidence: Array<IntArray>
+
+        /** How many selected digits hit each constraint; 0 means uncovered. */
+        private val hits = IntArray(constraints.size)
+
+        // Uncovered constraints live in a circular doubly-linked list with a
+        // sentinel, preserving the original list order. Removal is O(1);
+        // backtracking restores the exact position from a LIFO journal, so
+        // the active iteration order always equals the rescan order.
+        private val sentinel = constraints.size
+        private val activeNext = IntArray(constraints.size + 1)
+        private val activePrev = IntArray(constraints.size + 1)
+        private val journalConstraint = IntArray(constraints.size + 1)
+        private val journalPrev = IntArray(constraints.size + 1)
+        private var journalTop = 0
+
+        init {
+            val universe = constraints.maxOfOrNull { it.length() } ?: 0
+            val buckets = Array(universe) { ArrayList<Int>() }
+            constraints.forEachIndexed { index, cut ->
+                var digit = cut.nextSetBit(0)
+                while (digit >= 0) {
+                    buckets[digit].add(index)
+                    digit = cut.nextSetBit(digit + 1)
+                }
+            }
+            incidence = Array(universe) { buckets[it].toIntArray() }
+            if (constraints.isEmpty()) {
+                activeNext[sentinel] = sentinel
+                activePrev[sentinel] = sentinel
+            } else {
+                for (i in constraints.indices) {
+                    activeNext[i] = i + 1
+                    activePrev[i] = i - 1
+                }
+                activeNext[sentinel] = 0
+                activePrev[sentinel] = constraints.size - 1
+                activePrev[0] = sentinel
+                activeNext[constraints.size - 1] = sentinel
+            }
+        }
 
         fun solve(): Answer {
             if (maxSelected < 0) return Answer(Kind.EXHAUSTED)
@@ -377,39 +435,72 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
 
             // All BitSet keys are immutable after insertion. Branches clone.
             if (!visited.add(selectedMask)) return
-            var smallest: BitSet? = null
+            var smallest: Int = -1
             var minimumSize = Int.MAX_VALUE
             var lowerBound = 0
             val packed = BitSet()
             // Pairwise disjoint uncovered constraints each require one
             // distinct number, giving a safe (possibly weak) lower bound.
-            for (cut in constraints) {
-                if (selectedMask.intersects(cut)) continue
-                val count = cut.cardinality()
+            var cursor = activeNext[sentinel]
+            while (cursor != sentinel) {
+                val count = cardinalities[cursor]
                 if (count < minimumSize) {
                     minimumSize = count
-                    smallest = cut
+                    smallest = cursor
                 }
+                val cut = constraints[cursor]
                 if (!packed.intersects(cut)) {
                     packed.or(cut)
                     lowerBound++
                 }
+                cursor = activeNext[cursor]
             }
 
-            val target = smallest
-            if (target == null) {
+            if (smallest < 0) {
                 found = selectedMask
                 return
             }
             if (selected + lowerBound > bound || selected == bound) return
 
+            val target = constraints[smallest]
             var choice = target.nextSetBit(0)
             while (choice >= 0) {
                 val next = selectedMask.clone() as BitSet
                 next.set(choice)
+                val mark = journalTop
+                select(choice)
                 search(next, selected + 1, bound)
+                unselect(mark)
                 if (found != null || unknown) return
                 choice = target.nextSetBit(choice + 1)
+            }
+        }
+
+        /** Record coverage of every constraint containing [digit]. */
+        private fun select(digit: Int) {
+            for (index in incidence[digit]) {
+                if (hits[index]++ == 0) {
+                    journalConstraint[journalTop] = index
+                    journalPrev[journalTop] = activePrev[index]
+                    journalTop++
+                    activeNext[activePrev[index]] = activeNext[index]
+                    activePrev[activeNext[index]] = activePrev[index]
+                }
+            }
+        }
+
+        /** Undo selections back to journal mark [mark], restoring list order. */
+        private fun unselect(mark: Int) {
+            while (journalTop > mark) {
+                journalTop--
+                val index = journalConstraint[journalTop]
+                hits[index] = 0
+                val previous = journalPrev[journalTop]
+                val follower = activeNext[previous]
+                activeNext[previous] = index
+                activePrev[index] = previous
+                activeNext[index] = follower
+                activePrev[follower] = index
             }
         }
     }

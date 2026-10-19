@@ -60,6 +60,10 @@ android {
             it.systemProperty("hidato.benchmark.repeats", project.findProperty("hidatoBenchmarkRepeats") as String? ?: "5")
             it.systemProperty("hidato.benchmark.label", project.findProperty("hidatoBenchmarkLabel") as String? ?: "run")
             it.systemProperty("hidato.benchmark.only", project.findProperty("hidatoBenchmarkOnly") as String? ?: "")
+            // Hitting-set ablation harness (issue #11); skips fast unless enabled.
+            // ./gradlew :app:testDebugUnitTest --tests "*HittingSetAblationBenchmark*" \
+            //     -PhidatoHsBenchmark=true
+            it.systemProperty("hidato.hs.benchmark", project.findProperty("hidatoHsBenchmark") as String? ?: "")
         }
     }
 }
