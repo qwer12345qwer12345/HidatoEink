@@ -67,6 +67,25 @@ jobs:
             /tmp/fixed-path-geometry-report.md
           if-no-files-found: error
           retention-days: 30
+      - name: Benchmark geometry-guided local-window ordering (Issue #14 follow-up)
+        run: |
+          bash tools/offline/benchmark-fixed-path-window-order.sh \
+            app/src/main/assets/unique-puzzles.tsv \
+            tools/offline/fixed-path-geometry-corpus.tsv \
+            /tmp/fixed-path-window-order-windows.csv \
+            /tmp/fixed-path-window-order-summary.csv \
+            /tmp/fixed-path-window-order-report.md \
+            8 64
+      - name: Upload fixed-path window-order benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-path-window-order-${{ github.run_id }}
+          path: |
+            /tmp/fixed-path-window-order-windows.csv
+            /tmp/fixed-path-window-order-summary.csv
+            /tmp/fixed-path-window-order-report.md
+          if-no-files-found: error
+          retention-days: 30
       - name: Upload reproducible benchmark results
         uses: actions/upload-artifact@v4
         with:
