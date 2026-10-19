@@ -48,6 +48,25 @@ jobs:
             /tmp/minimum-clue-benchmark-exact-raw.csv \
             /tmp/minimum-clue-benchmark-exact-summary.csv \
             30000 3 1000000 50000000 exact
+      - name: Analyze fixed-path geometry and useful counterexamples (Issue #13)
+        run: |
+          bash tools/offline/analyze-fixed-path-geometry.sh \
+            app/src/main/assets/unique-puzzles.tsv \
+            tools/offline/fixed-path-geometry-corpus.tsv \
+            /tmp/fixed-path-geometry-witnesses.csv \
+            /tmp/fixed-path-geometry-summary.csv \
+            /tmp/fixed-path-geometry-report.md \
+            8 64 500000 500
+      - name: Upload fixed-path geometry analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-path-geometry-${{ github.run_id }}
+          path: |
+            /tmp/fixed-path-geometry-witnesses.csv
+            /tmp/fixed-path-geometry-summary.csv
+            /tmp/fixed-path-geometry-report.md
+          if-no-files-found: error
+          retention-days: 30
       - name: Upload reproducible benchmark results
         uses: actions/upload-artifact@v4
         with:
