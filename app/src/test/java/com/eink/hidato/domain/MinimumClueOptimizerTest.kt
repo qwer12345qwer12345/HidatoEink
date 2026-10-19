@@ -155,7 +155,7 @@ class MinimumClueOptimizerTest {
     }
 
     @Test
-    fun `disjoint witness packing never overestimates minimum hitting set`() {
+    fun `combined witness bounds never overestimate minimum hitting set`() {
         val optimiser = MinimumClueOptimizer()
         val random = kotlin.random.Random(2707)
         repeat(100) {
@@ -164,7 +164,7 @@ class MinimumClueOptimizerTest {
                 repeat(3) { cut.set(2 + random.nextInt(7)) }
                 cut
             }
-            val lowerBound = optimiser.disjointWitnessLowerBound(cuts)
+            val lowerBound = optimiser.witnessLowerBound(cuts)
             val exhaustiveMinimum = (0 until 128)
                 .filter { mask -> cuts.all { cut ->
                     (2..8).any { n -> (mask and (1 shl (n - 2))) != 0 && cut.get(n) }
@@ -181,6 +181,15 @@ class MinimumClueOptimizerTest {
             BitSet().apply { set(8); set(9) },
         )
         assertEquals(3, optimiser.disjointWitnessLowerBound(disjoint))
+        val triangle = listOf(
+            BitSet().apply { set(2); set(3) },
+            BitSet().apply { set(3); set(4) },
+            BitSet().apply { set(2); set(4) },
+        )
+        assertEquals(1, optimiser.disjointWitnessLowerBound(triangle))
+        assertEquals(2, optimiser.coverageWitnessLowerBound(triangle))
+        assertEquals(2, optimiser.witnessLowerBound(triangle))
+        assertEquals(0, optimiser.witnessLowerBound(emptyList()))
     }
 
     private fun cluesForMask(mask: Int): BooleanArray {
