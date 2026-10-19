@@ -1,0 +1,22 @@
+# id<TAB>source<TAB>field1<TAB>field2<TAB>field3<TAB>field4<TAB>known-minimum-clues
+# Catalog source uses a one-based row index and '-' for unused fields.
+# Inline source uses rows, cols, comma-separated path cells, and comma-separated given labels.
+tiny-3x3	inline	3	3	0,1,2,5,4,3,6,7,8	1,9	-
+catalog-01	catalog	1	-	-	-	-
+catalog-02	catalog	2	-	-	-	-
+catalog-03	catalog	3	-	-	-	-
+catalog-04	catalog	4	-	-	-	-
+catalog-05	catalog	5	-	-	-	-
+catalog-06	catalog	6	-	-	-	-
+catalog-07	catalog	7	-	-	-	-
+catalog-08	catalog	8	-	-	-	-
+catalog-09	catalog	9	-	-	-	-
+catalog-10	catalog	10	-	-	-	-
+catalog-11	catalog	11	-	-	-	-
+catalog-12	catalog	12	-	-	-	-
+catalog-13	catalog	13	-	-	-	-
+catalog-14	catalog	14	-	-	-	-
+catalog-15	catalog	15	-	-	-	-
+catalog-16	catalog	16	-	-	-	-
+catalog-17	catalog	17	-	-	-	-
+catalog-18	catalog	18	-	-	-	-
