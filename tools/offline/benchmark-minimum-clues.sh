@@ -11,6 +11,7 @@ budget_ms="${5:-30000}"
 repetitions="${6:-3}"
 master_nodes="${7:-1000000}"
 oracle_nodes="${8:-50000000}"
+variant="${9:-exact}"
 
 command -v kotlinc >/dev/null || { echo "kotlinc is required" >&2; exit 1; }
 tmp_dir="$(mktemp -d)"
@@ -27,4 +28,4 @@ kotlinc \
 
 java -jar "$tmp_dir/minimum-clue-benchmark.jar" \
   "$catalog" "$corpus" "$raw_csv" "$summary_csv" \
-  "$budget_ms" "$repetitions" "$master_nodes" "$oracle_nodes"
+  "$budget_ms" "$repetitions" "$master_nodes" "$oracle_nodes" "$variant"
