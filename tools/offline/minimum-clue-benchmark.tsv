@@ -1,0 +1,9 @@
+# id<TAB>source<TAB>field1<TAB>field2<TAB>field3<TAB>field4<TAB>known-minimum-clues
+# Catalog source: field1 is the one-based data row; other fields are '-'.
+# Inline source: field1=rows, field2=cols, field3=comma-separated path, field4=comma-separated given numbers.
+tiny-3x3	inline	3	3	0,1,2,5,4,3,6,7,8	1,2,3,4,5,6,7,8,9	-
+proven-4x4-medium	catalog	2	-	-	-	4
+catalog-5x5-easy	catalog	4	-	-	-	-
+catalog-6x6-easy	catalog	7	-	-	-	-
+catalog-8x8-easy	catalog	10	-	-	-	-
+catalog-15x15-hard	catalog	18	-	-	-	-
