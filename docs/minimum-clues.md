@@ -83,6 +83,29 @@ bash tools/offline/verify-catalog.sh /tmp/minimum.tsv
 
 `stderr` 输出 `clues=初始->最终`、`proved-lower-bound=已证明的线索数下界`、`status`、`proof`、约束数、求解器调用数、主问题节点数、耗时。若 `proof=false`，也可以使用结果，因为它仍然经过唯一性验证，但**不得写成最少线索证明**。
 
+## 可复现最少线索基准（Issue #8）
+
+基准语料固定在 `tools/offline/minimum-clue-benchmark.tsv`，包括：
+
+- 3×3 小棋盘：独立枚举全部 128 种端点固定的线索子集，并直接枚举完整路径作为正确性 oracle；此检查不调用生产求解器或其剪枝。
+- 已知证明最少为 4 个线索的 4×4 中等题，作为每次运行的证明回归。
+- 5×5、6×6、8×8 和 15×15 题库实例；15×15 覆盖 64 格以上的统一 `BitSet` 路径。
+
+运行命令（需要 JDK 17 和 `kotlinc`）：
+
+```bash
+bash tools/offline/benchmark-minimum-clues.sh \
+  app/src/main/assets/unique-puzzles.tsv \
+  tools/offline/minimum-clue-benchmark.tsv \
+  /tmp/minimum-clue-benchmark-raw.csv \
+  /tmp/minimum-clue-benchmark-summary.csv \
+  30000 3 1000000 50000000
+```
+
+参数依次是题库、语料、逐次原始 CSV、汇总 CSV、每次时间预算（毫秒）、重复次数、主问题节点预算和 oracle 节点预算。所有案例使用相同预算；固定路径以 SHA-256 标识，不依赖运行时随机数。原始 CSV 每次运行一行，记录 JVM/操作系统、尺寸、初始/最终线索、证明状态、认证下界、耗时、主问题节点、oracle 调用、反例数、保留约束数及超时/Unknown 状态。汇总 CSV 报告中位数、线索数范围、证明次数和各停止状态，以保留运行方差而不是只挑选最好的一次。
+
+当小棋盘或已知 4×4 参考值已经能证明最优时，结果必须与参考最小值一致；超时、节点预算耗尽和 `UNKNOWN` 只会记为未证明，不会升级成最优。CI 会上传原始数据和中位数摘要作为每次运行的基准 artifact。耗时受 runner/JVM 影响，因此不把未经同一环境复测的时间写成固定性能承诺，也不把未实际运行的数字提交为基线。
+
 ## 验证记录（本次变更：PR #2）
 
 **目标和边界**：只优化给定完整路径 `S` 的初始线索，不更换 `S`。保留首尾数字的规则；所有当前棋盘尺寸都采用同一套 `BitSet` 模型。计算量大时只返回已验证唯一的上界，绝不虚报数学最优。
