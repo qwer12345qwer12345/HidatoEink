@@ -50,6 +50,18 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    testOptions {
+        unitTests.all {
+            // Benchmark plumbing (pure JVM; no Android build impact):
+            // ./gradlew :app:testDebugUnitTest --tests "*MinimumClueBenchmark*" \
+            //     -PhidatoBenchmark=true
+            // Without the project property the benchmark JUnit test skips fast (Assume).
+            it.systemProperty("hidato.benchmark", project.findProperty("hidatoBenchmark") as String? ?: "")
+            it.systemProperty("hidato.benchmark.repeats", project.findProperty("hidatoBenchmarkRepeats") as String? ?: "5")
+            it.systemProperty("hidato.benchmark.label", project.findProperty("hidatoBenchmarkLabel") as String? ?: "run")
+            it.systemProperty("hidato.benchmark.only", project.findProperty("hidatoBenchmarkOnly") as String? ?: "")
+        }
+    }
 }
 
 dependencies {
