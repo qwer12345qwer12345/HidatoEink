@@ -222,3 +222,41 @@ bash tools/offline/benchmark-minimum-clues.sh \
 新增的独立离线分析工具比较合法片段反转、带窗口上限的局部路径替换原型和完整求解器返回的真实替代路径。它记录直线段/转弯、附近标签几何距离、差异集合大小与重叠、非冗余约束新增量，以及各阶段的互不相交打包下界。3×3 样例还会穷举当前约束族的最小击中集以交叉检查下界。
 
 复现命令和指标定义见 [固定路径几何分析说明](fixed-path-geometry.md)。CI 在每次运行时生成逐见证 CSV、逐实例汇总 CSV 和带相关性分析的 Markdown 报告，并作为独立 artifact 上传。所有性能/相关性结论必须来自实际运行数据；UNKNOWN 不等于唯一解，相关性也不构成安全剪枝证明。
+
+## 击中集主问题的增量覆盖记账（Issue #11）
+
+**变体与结论**：`HittingSetMaster` 原先在每个搜索节点重新扫描全部约束（`BitSet.intersects` × m）。本变更把它改为增量覆盖记账：预先构建"数字 → 包含该数字的约束"关联表；分支选中数字时递增对应约束的命中计数并把新覆盖的约束从**保序双向链表**中摘除，回溯时按 LIFO 日志原位恢复。节点内只需扫描"尚未覆盖"的约束，且最小割基数预先算好。遍历顺序、答案和节点数与逐节点全扫描实现**逐位一致**（`HittingSetMasterIncrementalTest` 用测试侧复刻的 rescan 参考实现逐实例断言 kind/mask/nodes 相等）。
+
+同题消融的其他变体（测试侧 `HittingSetAblationReference`，仅用于实验，未进入生产）：
+
+- **A 覆盖频率排序分支**（短割不变，割内数字按当前未覆盖约束命中数降序尝试）：FOUND 型负载节点数下降（如 synth-a 45→27、synth-b 165→84），但每个节点需额外统计全部活跃数字频率，大实例墙上时间反而变慢（synth-c 82ms vs 增量 10ms）。
+- **B 最受约束割规则**（活跃割中"最强数字覆盖数"最小者优先）：节点数显著上升（synth-d 5382→84763、synth-e 148573→267413），明显更差。
+- **D 频率覆盖节点下界**（ceil(活跃约束数 / 最大数字频率)）：节点数小幅下降（synth-c 12231→9989），但额外扫描使总时间仍高于纯增量（24ms vs 10ms）。
+
+**采纳**：仅增量覆盖记账（变体 C）进入生产。它不改变任何遍历或语义，纯降低每节点成本。
+
+**基准**（Windows 11 / JDK 17.0.20.1 / Gradle 8.7 / 相同输入 / 5 次重复取中位数；命令见下）：
+
+| 实例（合成重叠小割族） | rescan 基线 | 增量记账 | 节点数 |
+| --- | ---: | ---: | ---: |
+| synth-c（33 数字 / 180 割） | 30ms | **10ms** | 12231（相同） |
+| synth-d（41 数字 / 300 割） | 7ms | **4ms** | 5382（相同） |
+| synth-e（49 数字 / 450 割） | 339ms | **112ms** | 148573（相同） |
+
+真实题库路径的初始约束族（4×4～15×15，5～90 条约束）上主问题节点数 ≤ 2.3 万、耗时亚毫秒到数毫秒，主问题仍不是端到端瓶颈；全量端到端基准（`MinimumClueBenchmark`）的线索数、证明状态、oracle 调用数与 master 节点数和 master 基线完全一致（耗时差异在噪声内）。**已发现的规模上限**：主问题的真正扩展瓶颈是共享 `visited` 状态集合的内存（约等于节点数 × 每状态 BitSet 字宽），18 条题库路径的块状合并实例（1076 位掩码 × 5×10⁶ 节点预算）在默认测试 JVM 堆内先于节点预算 OOM——扫描成本并非首要限制。
+
+**正确性门**（`HittingSetMasterIncrementalTest`，CI 常规运行）：40 组随机超图上生产实现与 rescan 参考实现 kind/mask/nodes 逐一相等；30 组小超图上全部变体返回独立穷举的最优击中集大小；节点预算耗尽返回 `UNKNOWN` 而非 `EXHAUSTED`/`FOUND`；空约束族与 `maxSelected < 0` 的边界与基线语义一致。
+
+复现命令：
+
+```bash
+# 消融基准（默认跳过；打印 RAW/MED TSV，变体一致性为硬断言）
+./gradlew :app:testDebugUnitTest --tests "com.eink.hidato.benchmark.HittingSetAblationBenchmark" \
+    -PhidatoHsBenchmark=true -PhidatoBenchmarkRepeats=5
+
+# 正确性门（随全量 JVM 测试运行）
+./gradlew :app:testDebugUnitTest
+```
+
+实例构成：5 组确定性随机合成超图（2..5 元重叠小割，模拟 Hidato 差异集合形态；a/b 为 FOUND 型负载，c/d/e 为证明型负载）＋18 条题库路径经反转+局部替换播种得到的真实约束族（minimumSelected 取认证下界，贴近生产工作负载）。
+
