@@ -19,8 +19,8 @@ import kotlin.math.roundToLong
  * summary reports medians rather than presenting one timing as authoritative.
  */
 fun main(args: Array<String>) {
-    require(args.size in 6..8) {
-        "Usage: BenchmarkMinimumCluesKt <catalog.tsv> <corpus.tsv> <raw.csv> <summary.csv> <budgetMillis> <repetitions> [masterNodeLimit] [oracleNodeLimit]"
+    require(args.size in 6..9) {
+        "Usage: BenchmarkMinimumCluesKt <catalog.tsv> <corpus.tsv> <raw.csv> <summary.csv> <budgetMillis> <repetitions> [masterNodeLimit] [oracleNodeLimit] [baseline|exact]"
     }
     val catalogFile = File(args[0])
     val corpusFile = File(args[1])
@@ -30,6 +30,8 @@ fun main(args: Array<String>) {
     val repetitions = args[5].toInt()
     val masterNodeLimit = args.getOrNull(6)?.toLong() ?: 1_000_000L
     val oracleNodeLimit = args.getOrNull(7)?.toLong() ?: 50_000_000L
+    val variant = args.getOrNull(8) ?: "exact"
+    require(variant == "baseline" || variant == "exact") { "Variant must be baseline or exact" }
     require(budgetMillis in 1..3_600_000)
     require(repetitions in 1..20)
     require(masterNodeLimit > 0 && oracleNodeLimit > 0)
@@ -59,7 +61,9 @@ fun main(args: Array<String>) {
         }
 
         for (repetition in 1..repetitions) {
-            val report = MinimumClueOptimizer().optimize(
+            val report = MinimumClueOptimizer(
+                solver = com.eink.hidato.domain.HidatoSolver(enableExactIntervalPropagation = variant == "exact"),
+            ).optimize(
                 initial = case.puzzle,
                 timeLimitMillis = budgetMillis,
                 oracleNodeLimit = oracleNodeLimit,
@@ -94,6 +98,7 @@ fun main(args: Array<String>) {
             rows.add(
                 BenchmarkRow(
                     caseId = case.id,
+                    variant = variant,
                     source = case.source,
                     rows = case.puzzle.rows,
                     cols = case.puzzle.cols,
@@ -121,7 +126,7 @@ fun main(args: Array<String>) {
                 ),
             )
             println(
-                case.id + " run " + repetition + "/" + repetitions +
+                case.id + " [" + variant + "] run " + repetition + "/" + repetitions +
                     ": status=" + stopped +
                     " clues=" + report.initialClues + "->" + report.finalClues +
                     " elapsedMs=" + report.elapsedMillis
@@ -148,6 +153,7 @@ private data class BenchmarkCase(
 
 private data class BenchmarkRow(
     val caseId: String,
+    val variant: String,
     val source: String,
     val rows: Int,
     val cols: Int,
@@ -174,7 +180,7 @@ private data class BenchmarkRow(
     val osArch: String,
 ) {
     fun toRawCsv(): List<Any?> = listOf(
-        caseId, source, rows, cols, seed, pathSha256, repetition,
+        caseId, variant, source, rows, cols, seed, pathSha256, repetition,
         initialClues, finalClues, proofStatus, lowerBound, elapsedMillis,
         masterNodes, solverCalls, alternativesFound, constraintsRetained,
         stopped, timeoutOrUnknown, referenceMinimum ?: "", referenceType,
@@ -183,7 +189,7 @@ private data class BenchmarkRow(
 }
 
 private val RAW_HEADER = listOf(
-    "input_id", "source", "rows", "cols", "seed_or_path_source", "path_sha256",
+    "input_id", "variant", "source", "rows", "cols", "seed_or_path_source", "path_sha256",
     "repetition", "initial_clues", "final_clues", "proof_status",
     "certified_lower_bound", "elapsed_ms", "master_nodes", "solver_calls",
     "alternatives_found", "constraints_retained", "stopped_status",
@@ -192,7 +198,7 @@ private val RAW_HEADER = listOf(
 )
 
 private val SUMMARY_HEADER = listOf(
-    "input_id", "source", "rows", "cols", "path_sha256", "runs",
+    "input_id", "variant", "source", "rows", "cols", "path_sha256", "runs",
     "initial_clues", "median_final_clues", "min_final_clues", "max_final_clues",
     "median_elapsed_ms", "median_master_nodes", "median_solver_calls",
     "median_alternatives_found", "median_constraints_retained",
@@ -334,7 +340,7 @@ private fun summaryRow(group: List<BenchmarkRow>): List<Any?> {
         else -> "not-proved-in-some-runs"
     }
     return listOf(
-        first.caseId, first.source, first.rows, first.cols, first.pathSha256,
+        first.caseId, first.variant, first.source, first.rows, first.cols, first.pathSha256,
         group.size, first.initialClues,
         medianInt(group.map { it.finalClues }),
         group.minOf { it.finalClues }, group.maxOf { it.finalClues },

@@ -15,7 +15,7 @@ sealed interface AlternativeResult {
  * before the DFS reaches that digit. UNKNOWN is never considered unique.
  * Every invocation has its own independent search workspace.
  */
-class HidatoSolver {
+class HidatoSolver(private val enableExactIntervalPropagation: Boolean = true) {
     companion object {
         const val DEFAULT_NODE_LIMIT = 400_000L
     }
@@ -28,7 +28,7 @@ class HidatoSolver {
         nodeLimit: Long = DEFAULT_NODE_LIMIT,
         timeLimitMillis: Long = Long.MAX_VALUE,
     ): AlternativeResult {
-        val search = Search(rows, cols, path, clues, nodeLimit, timeLimitMillis, findAlternative = true, countLimit = 1)
+        val search = Search(rows, cols, path, clues, nodeLimit, timeLimitMillis, enableExactIntervalPropagation, findAlternative = true, countLimit = 1)
         search.run()
         return when {
             search.alternative != null -> AlternativeResult.Found(search.alternative!!, search.nodes)
@@ -47,7 +47,7 @@ class HidatoSolver {
         nodeLimit: Long = DEFAULT_NODE_LIMIT,
     ): Int {
         require(limit > 0)
-        val search = Search(rows, cols, path, clues, nodeLimit, Long.MAX_VALUE, findAlternative = false, countLimit = limit)
+        val search = Search(rows, cols, path, clues, nodeLimit, Long.MAX_VALUE, enableExactIntervalPropagation, findAlternative = false, countLimit = limit)
         search.run()
         return if (search.exhausted) -1 else search.solutionCount
     }
@@ -67,6 +67,7 @@ class HidatoSolver {
         clues: BooleanArray,
         private val nodeLimit: Long,
         timeLimitMillis: Long,
+        private val enableExactIntervalPropagation: Boolean,
         private val findAlternative: Boolean,
         private val countLimit: Int,
     ) {
@@ -148,31 +149,81 @@ class HidatoSolver {
                 }
                 return
             }
+            // If the next fixed clue is exactly the shortest-path distance away,
+            // every move must reduce Chebyshev distance by one. Filter those moves
+            // before trying them instead of relying only on the later candidate bound.
+            var forcedTargetNumber = -1
+            var forcedDistance = -1
+            if (enableExactIntervalPropagation) {
+                val intervalTarget = nextGiven[nextNumber]
+                if (intervalTarget >= 0) {
+                    val distance = Grids.chebyshev(cell, givenPosition[intervalTarget], cols)
+                    val steps = intervalTarget - number
+                    if (distance == steps) {
+                        forcedTargetNumber = intervalTarget
+                        forcedDistance = distance
+                    }
+                }
+            }
+
             // Try deviations before the reference edge: genuine counterexamples appear sooner.
             val refNext = reference[nextNumber - 1]
             if (findAlternative) {
                 for (candidate in neighbors[cell]) {
-                    if (candidate != refNext) tryCandidate(number, candidate, differs)
+                    if (candidate != refNext &&
+                        (forcedTargetNumber < 0 ||
+                            isForcedIntervalMove(candidate, forcedTargetNumber, forcedDistance))
+                    ) {
+                        tryCandidate(number, candidate, differs, forcedTargetNumber)
+                    }
                     if (alternative != null || exhausted) return
                 }
-                if (Grids.adjacent(cell, refNext, cols)) tryCandidate(number, refNext, differs)
+                if (Grids.adjacent(cell, refNext, cols) &&
+                    (forcedTargetNumber < 0 ||
+                        isForcedIntervalMove(refNext, forcedTargetNumber, forcedDistance))
+                ) {
+                    tryCandidate(number, refNext, differs, forcedTargetNumber)
+                }
             } else {
                 for (candidate in neighbors[cell]) {
-                    tryCandidate(number, candidate, differs)
+                    if (forcedTargetNumber < 0 ||
+                        isForcedIntervalMove(candidate, forcedTargetNumber, forcedDistance)
+                    ) {
+                        tryCandidate(number, candidate, differs, forcedTargetNumber)
+                    }
                     if (solutionCount >= countLimit || exhausted) return
                 }
             }
         }
 
-        private fun tryCandidate(number: Int, candidate: Int, differs: Boolean) {
-            // No future given number can be used as an intermediate free square.
-            if (visited[candidate] || reservedBy[candidate] != 0) return
+        /**
+         * In an exact-distance interval, every legal next step must reduce the
+         * distance by one. Check occupancy here as well as geometry, so the
+         * caller can skip repeating those checks in [tryCandidate].
+         */
+        private fun isForcedIntervalMove(candidate: Int, targetNumber: Int, currentDistance: Int): Boolean {
+            if (visited[candidate] || reservedBy[candidate] != 0) return false
+            return Grids.chebyshev(candidate, givenPosition[targetNumber], cols) == currentDistance - 1
+        }
+
+        private fun tryCandidate(
+            number: Int,
+            candidate: Int,
+            differs: Boolean,
+            prevalidatedIntervalTarget: Int = -1,
+        ) {
             val nextNumber = number + 1
             val targetNumber = nextGiven[nextNumber]
-            if (targetNumber >= 0) {
-                val remainingSteps = targetNumber - nextNumber
-                if (Grids.chebyshev(candidate, givenPosition[targetNumber], cols) > remainingSteps) return
+            if (prevalidatedIntervalTarget < 0) {
+                // No future given number can be used as an intermediate free square.
+                if (visited[candidate] || reservedBy[candidate] != 0) return
+                if (targetNumber >= 0) {
+                    val remainingSteps = targetNumber - nextNumber
+                    if (Grids.chebyshev(candidate, givenPosition[targetNumber], cols) > remainingSteps) return
+                }
             }
+            // Otherwise the candidate was checked against this exact interval
+            // before entering this function; no bound or occupancy check is repeated.
             follow(nextNumber, candidate, differs || candidate != reference[number])
         }
 
