@@ -100,7 +100,7 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
             // Each pairwise-disjoint alternative-path difference set needs
             // a distinct given digit. If that count reaches the certified
             // upper bound, minimality follows without searching the master.
-            minimumOptional = disjointWitnessLowerBound(conflicts)
+            minimumOptional = witnessLowerBound(conflicts)
             if (minimumOptional >= incumbent.cardinality()) {
                 stopped = Stopped.PROVED_MINIMUM
                 break
@@ -316,6 +316,26 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
         }
         return count
     }
+
+    /** Each digit covers at most maxFrequency cuts; m cuts need ceil(m/maxFrequency) digits. */
+    internal fun coverageWitnessLowerBound(cuts: List<BitSet>): Int {
+        if (cuts.isEmpty()) return 0
+        val frequencies = IntArray(cuts.maxOf { it.length() })
+        var maxFrequency = 0
+        for (cut in cuts) {
+            var digit = cut.nextSetBit(0)
+            while (digit >= 0) {
+                val frequency = ++frequencies[digit]
+                if (frequency > maxFrequency) maxFrequency = frequency
+                digit = cut.nextSetBit(digit + 1)
+            }
+        }
+        check(maxFrequency > 0) { "Difference sets must be nonempty" }
+        return (cuts.size + maxFrequency - 1) / maxFrequency
+    }
+
+    internal fun witnessLowerBound(cuts: List<BitSet>): Int =
+        maxOf(disjointWitnessLowerBound(cuts), coverageWitnessLowerBound(cuts))
 
     /** Exact minimum-cardinality hitting-set master with a node/time budget. */
     private class HittingSetMaster(
