@@ -14,9 +14,9 @@ import kotlin.math.sqrt
 
 private val gaps = listOf(1, 2, 3, 4, 8, 16)
 private data class Case(val id: String, val source: String, val puzzle: Puzzle)
-private data class Witness(val start: Int, val end: Int, val mask: BitSet, var multiplicity: Int = 1)
+private data class Witness(val start: Int, val end: Int, val mask: BitSet, var multiplicity: Int = 1, val tour: IntArray? = null)
 private data class LocalResult(val windows: Int, val tours: Int, val witnesses: List<Witness>)
-private data class Probe(val name: String, val status: String, val nodes: Long, val mask: BitSet? = null, var novel: Boolean? = null)
+private data class Probe(val name: String, val status: String, val nodes: Long, val mask: BitSet? = null, var novel: Boolean? = null, val tour: IntArray? = null)
 private data class GapStat(val distance: Double?, val slack: Double?, val exact: Double?)
 private data class Geo(val turns: List<Int>, val runs: List<Int>, val gapStats: Map<Int, GapStat>) {
     val meanRun: Double get() = runs.average()
@@ -54,7 +54,7 @@ fun main(args: Array<String>) {
     writeReport(reportFile, results, maxWindow, cap, nodeLimit, timeLimit)
     println("FIXED_PATH_GEOMETRY cases=${results.size} witnesses=${witnessFile.absolutePath} summary=${summaryFile.absolutePath}")
     println("FIXED_PATH_GEOMETRY report_begin")
-    reportFile.forEachLine(::println)
+    reportFile.forEachLine { println(it) }
     println("FIXED_PATH_GEOMETRY report_end")
 }
 
@@ -163,7 +163,7 @@ private fun enumerateReversals(path: IntArray, rows: Int, cols: Int): List<Witne
         if (tour.contentEquals(path)) continue
         check(HamiltonianPaths.isValid(tour, rows, cols))
         val mask = difference(path, tour)
-        if (!mask.isEmpty) out.add(Witness(start, end, mask))
+        if (!mask.isEmpty) out.add(Witness(start, end, mask, tour = tour))
     }
     return out
 }
@@ -193,7 +193,7 @@ private fun enumerateLocal(path: IntArray, rows: Int, cols: Int, maxWindow: Int,
                     check(!mask.isEmpty)
                     emitted++; tours++
                     val k = key(mask); val old = unique[k]
-                    if (old == null) unique[k] = Witness(start, end, mask) else old.multiplicity++
+                    if (old == null) unique[k] = Witness(start, end, mask, tour = tour.copyOf()) else old.multiplicity++
                     return
                 }
                 for (candidate in 0 until size) {
@@ -237,7 +237,7 @@ private fun solverProbes(p: Puzzle, nodeLimit: Long, timeLimit: Long): List<Prob
                 val given = BitSet(n + 1)
                 for (i in 1..n) if (clues[i]) given.set(i)
                 check(!mask.isEmpty && !given.intersects(mask))
-                out.add(Probe(name, "FOUND", answer.nodes, mask))
+                out.add(Probe(name, "FOUND", answer.nodes, mask, tour = answer.path.copyOf()))
             }
             is AlternativeResult.Unique -> out.add(Probe(name, "UNIQUE", answer.nodes))
             is AlternativeResult.Unknown -> out.add(Probe(name, "UNKNOWN", answer.nodes))
@@ -304,26 +304,26 @@ private fun fmt(v: Double) = if (!v.isFinite()) "" else "%.4f".format(java.util.
 private fun writeWitnesses(file: File, rows: List<ResultRow>) {
     val header = listOf("instance_id","source","path_sha256","family","witness_id","probe","outcome",
         "valid_witness","start_digit","end_digit","window_length","multiplicity","difference_size",
-        "difference_digits","novel_non_subsumed_at_insertion","solver_nodes")
+        "difference_digits","alternative_path_cells","novel_non_subsumed_at_insertion","solver_nodes")
     val out = arrayListOf<List<Any?>>()
     for (r in rows) {
         val revPrior = arrayListOf<BitSet>()
         r.reversals.forEachIndexed { i, w ->
             val novel = addCut(revPrior, w.mask)
             out.add(listOf(r.case.id,r.case.source,r.hash,"segment-reversal","reverse-${i+1}","","VALIDATED",true,
-                w.start+1,w.end+1,w.end-w.start+1,1,w.mask.cardinality(),key(w.mask),novel,""))
+                w.start+1,w.end+1,w.end-w.start+1,1,w.mask.cardinality(),key(w.mask),w.tour?.joinToString(",") ?: "",novel,""))
         }
         val localPrior = copyMasks(r.reversalCuts)
         for (w in r.local.witnesses.sortedWith(witnessOrder())) {
             val novel = addCut(localPrior, w.mask)
             out.add(listOf(r.case.id,r.case.source,r.hash,"local-replacement",
                 "local-${w.start+1}-${w.end+1}-${key(w.mask)}","","VALIDATED",true,
-                w.start+1,w.end+1,w.end-w.start+1,w.multiplicity,w.mask.cardinality(),key(w.mask),novel,""))
+                w.start+1,w.end+1,w.end-w.start+1,w.multiplicity,w.mask.cardinality(),key(w.mask),w.tour?.joinToString(",") ?: "",novel,""))
         }
         for (p in r.probes) {
             val m = p.mask
             out.add(listOf(r.case.id,r.case.source,r.hash,"full-solver","solver-${p.name}",p.name,p.status,m != null,
-                "","", "",if (m == null) "" else 1,m?.cardinality() ?: "",m?.let(::key) ?: "",
+                "","", "",if (m == null) "" else 1,m?.cardinality() ?: "",m?.let(::key) ?: "",p.tour?.joinToString(",") ?: "",
                 p.novel ?: "",p.nodes))
         }
     }
@@ -361,7 +361,7 @@ private fun writeSummary(file: File, rows: List<ResultRow>) {
             val stat = r.geo.gapStats.getValue(g)
             row += stat.distance?.let(::fmt) ?: ""; row += stat.slack?.let(::fmt) ?: ""; row += stat.exact?.let(::fmt) ?: ""
         }
-        row += listOf(r.reversals.size,r.reversalUnique.size,r.reversalCuts.size,
+        row.addAll(listOf(r.reversals.size,r.reversalUnique.size,r.reversalCuts.size,
             revOverlap.meanJaccard?.let(::fmt) ?: "",revOverlap.disjointFraction?.let(::fmt) ?: "",r.lbReversal,
             r.local.windows,r.local.tours,localUnique.size,r.localCuts.size,r.localNovel,
             localOverlap.meanJaccard?.let(::fmt) ?: "",localOverlap.disjointFraction?.let(::fmt) ?: "",
@@ -369,7 +369,7 @@ private fun writeSummary(file: File, rows: List<ResultRow>) {
             r.probes.count { it.status != "SKIPPED_DUPLICATE" },found,unique,unknown,r.solverUnique.size,r.solverCuts.size,
             r.solverNovel,solverOverlap.meanJaccard?.let(::fmt) ?: "",solverOverlap.disjointFraction?.let(::fmt) ?: "",
             r.afterSolver.size,r.lbSolver,r.lbSolver-r.lbLocal,r.probes.joinToString(";") { "${it.name}=${it.status}" },
-            r.tinyValidation)
+            r.tinyValidation))
         row
     }
     writeCsv(file, header, data)
