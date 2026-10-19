@@ -32,20 +32,30 @@ jobs:
         run: |
           bash tools/offline/minimize-catalog.sh app/src/main/assets/unique-puzzles.tsv 2 30000 > /tmp/hidato-optimized.tsv
           bash tools/offline/verify-catalog.sh /tmp/hidato-optimized.tsv
-      - name: Run reproducible minimum-clue benchmark
+      - name: Run baseline minimum-clue benchmark (Issue #9 control)
         run: |
           bash tools/offline/benchmark-minimum-clues.sh \
             app/src/main/assets/unique-puzzles.tsv \
             tools/offline/minimum-clue-benchmark.tsv \
-            /tmp/minimum-clue-benchmark-raw.csv \
-            /tmp/minimum-clue-benchmark-summary.csv \
-            30000 3 1000000 50000000
+            /tmp/minimum-clue-benchmark-baseline-raw.csv \
+            /tmp/minimum-clue-benchmark-baseline-summary.csv \
+            30000 3 1000000 50000000 baseline
+      - name: Run exact-distance propagation benchmark (Issue #9 variant)
+        run: |
+          bash tools/offline/benchmark-minimum-clues.sh \
+            app/src/main/assets/unique-puzzles.tsv \
+            tools/offline/minimum-clue-benchmark.tsv \
+            /tmp/minimum-clue-benchmark-exact-raw.csv \
+            /tmp/minimum-clue-benchmark-exact-summary.csv \
+            30000 3 1000000 50000000 exact
       - name: Upload reproducible benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: minimum-clue-benchmark-${{ github.run_id }}
           path: |
-            /tmp/minimum-clue-benchmark-raw.csv
-            /tmp/minimum-clue-benchmark-summary.csv
+            /tmp/minimum-clue-benchmark-baseline-raw.csv
+            /tmp/minimum-clue-benchmark-baseline-summary.csv
+            /tmp/minimum-clue-benchmark-exact-raw.csv
+            /tmp/minimum-clue-benchmark-exact-summary.csv
           if-no-files-found: error
           retention-days: 30
