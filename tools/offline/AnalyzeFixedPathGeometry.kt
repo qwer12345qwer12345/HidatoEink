@@ -26,6 +26,7 @@ private data class Geo(val turns: List<Int>, val runs: List<Int>, val gapStats: 
 private data class Overlap(val meanJaccard: Double?, val disjointFraction: Double?)
 private data class ResultRow(
     val case: Case, val hash: String, val geo: Geo,
+    val reversalMillis: Double, val localMillis: Double, val solverMillis: Double,
     val reversals: List<Witness>, val reversalUnique: List<BitSet>, val reversalCuts: List<BitSet>,
     val local: LocalResult, val localCuts: List<BitSet>, val localNovel: Int, val localNovelKeys: Set<String>,
     val afterLocal: List<BitSet>, val probes: List<Probe>, val solverUnique: List<BitSet>,
@@ -87,9 +88,12 @@ private fun parseInts(value: String) = value.split(',').map { it.trim().toInt() 
 private fun analyze(c: Case, maxWindow: Int, cap: Int, nodeLimit: Long, timeLimit: Long): ResultRow {
     val p = c.puzzle
     val geo = geometry(p.path, p.cols)
+    val reversalStarted = System.nanoTime()
     val reversals = enumerateReversals(p.path, p.rows, p.cols)
     val revUnique = uniqueMasks(reversals.map { it.mask })
     val revCuts = antichain(reversals.map { it.mask })
+    val reversalMillis = elapsedMillis(reversalStarted)
+    val localStarted = System.nanoTime()
     val local = enumerateLocal(p.path, p.rows, p.cols, maxWindow, cap)
     val localCuts = antichain(local.witnesses.map { it.mask })
     val afterLocal = copyMasks(revCuts)
@@ -98,7 +102,9 @@ private fun analyze(c: Case, maxWindow: Int, cap: Int, nodeLimit: Long, timeLimi
     for (w in local.witnesses.sortedWith(witnessOrder())) {
         if (addCut(afterLocal, w.mask)) { localNovel++; localNovelKeys.add(key(w.mask)) }
     }
+    val localMillis = elapsedMillis(localStarted)
 
+    val solverStarted = System.nanoTime()
     val probes = solverProbes(p, nodeLimit, timeLimit)
     val solverUnique = uniqueMasks(probes.mapNotNull { it.mask })
     val solverCuts = antichain(probes.mapNotNull { it.mask })
@@ -109,6 +115,7 @@ private fun analyze(c: Case, maxWindow: Int, cap: Int, nodeLimit: Long, timeLimi
         probe.novel = addCut(afterSolver, mask)
         if (probe.novel == true) solverNovel++
     }
+    val solverMillis = elapsedMillis(solverStarted)
 
     val optimizer = MinimumClueOptimizer()
     val lbRev = optimizer.disjointWitnessLowerBound(revCuts)
@@ -124,9 +131,9 @@ private fun analyze(c: Case, maxWindow: Int, cap: Int, nodeLimit: Long, timeLimi
         } + ")"
     } else "not-run"
 
-    return ResultRow(c, sha256(p.path), geo, reversals, revUnique, revCuts, local, localCuts,
-        localNovel, localNovelKeys, afterLocal, probes, solverUnique, solverCuts, solverNovel,
-        afterSolver, lbRev, lbLocal, lbSolver, tinyValidation)
+    return ResultRow(c, sha256(p.path), geo, reversalMillis, localMillis, solverMillis,
+        reversals, revUnique, revCuts, local, localCuts, localNovel, localNovelKeys, afterLocal,
+        probes, solverUnique, solverCuts, solverNovel, afterSolver, lbRev, lbLocal, lbSolver, tinyValidation)
 }
 
 private fun geometry(path: IntArray, cols: Int): Geo {
@@ -300,6 +307,8 @@ private fun sha256(path: IntArray) =
     MessageDigest.getInstance("SHA-256").digest(path.joinToString(",").toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 private fun fmt(v: Double) = if (!v.isFinite()) "" else "%.4f".format(java.util.Locale.ROOT, v)
+private fun rate(count: Int, millis: Double) = if (millis <= 0.0) "" else fmt(count * 1000.0 / millis)
+private fun elapsedMillis(startNanos: Long) = (System.nanoTime() - startNanos) / 1_000_000.0
 
 private fun writeWitnesses(file: File, rows: List<ResultRow>) {
     val header = listOf("instance_id","source","path_sha256","family","witness_id","probe","outcome",
@@ -337,12 +346,12 @@ private fun writeSummary(file: File, rows: List<ResultRow>) {
         header += "mean_chebyshev_gap_${g}"; header += "mean_slack_gap_${g}"; header += "fraction_exact_shortest_gap_${g}"
     }
     header += listOf("reversal_legal_intervals","reversal_unique_difference_sets","reversal_antichain_cuts",
-        "reversal_mean_pairwise_jaccard","reversal_disjoint_pair_fraction","reversal_disjoint_lb_optional",
+        "reversal_mean_pairwise_jaccard","reversal_disjoint_pair_fraction","reversal_disjoint_lb_optional","reversal_elapsed_ms","reversal_minimal_cuts_per_second",
         "local_windows","local_valid_tours","local_unique_difference_sets","local_antichain_cuts",
-        "local_novel_non_subsumed_cuts","local_mean_pairwise_jaccard","local_disjoint_pair_fraction",
+        "local_novel_non_subsumed_cuts","local_mean_pairwise_jaccard","local_disjoint_pair_fraction","local_elapsed_ms","local_novel_cuts_per_second",
         "combined_cuts_after_local","disjoint_lb_after_local_optional","disjoint_lb_delta_local",
         "solver_probe_count","solver_found_probes","solver_unique_probes","solver_unknown_probes",
-        "solver_unique_difference_sets","solver_antichain_cuts","solver_novel_non_subsumed_cuts",
+        "solver_unique_difference_sets","solver_antichain_cuts","solver_novel_non_subsumed_cuts","solver_elapsed_ms","solver_novel_cuts_per_second",
         "solver_mean_pairwise_jaccard","solver_disjoint_pair_fraction","combined_cuts_after_solver",
         "disjoint_lb_after_solver_optional","disjoint_lb_delta_solver","solver_probe_outcomes","tiny_bound_validation")
     val data = rows.map { r ->
@@ -362,12 +371,12 @@ private fun writeSummary(file: File, rows: List<ResultRow>) {
             row += stat.distance?.let(::fmt) ?: ""; row += stat.slack?.let(::fmt) ?: ""; row += stat.exact?.let(::fmt) ?: ""
         }
         row.addAll(listOf(r.reversals.size,r.reversalUnique.size,r.reversalCuts.size,
-            revOverlap.meanJaccard?.let(::fmt) ?: "",revOverlap.disjointFraction?.let(::fmt) ?: "",r.lbReversal,
+            revOverlap.meanJaccard?.let(::fmt) ?: "",revOverlap.disjointFraction?.let(::fmt) ?: "",r.lbReversal,fmt(r.reversalMillis),rate(r.reversalCuts.size,r.reversalMillis),
             r.local.windows,r.local.tours,localUnique.size,r.localCuts.size,r.localNovel,
-            localOverlap.meanJaccard?.let(::fmt) ?: "",localOverlap.disjointFraction?.let(::fmt) ?: "",
+            localOverlap.meanJaccard?.let(::fmt) ?: "",localOverlap.disjointFraction?.let(::fmt) ?: "",fmt(r.localMillis),rate(r.localNovel,r.localMillis),
             r.afterLocal.size,r.lbLocal,r.lbLocal-r.lbReversal,
             r.probes.count { it.status != "SKIPPED_DUPLICATE" },found,unique,unknown,r.solverUnique.size,r.solverCuts.size,
-            r.solverNovel,solverOverlap.meanJaccard?.let(::fmt) ?: "",solverOverlap.disjointFraction?.let(::fmt) ?: "",
+            r.solverNovel,fmt(r.solverMillis),rate(r.solverNovel,r.solverMillis),solverOverlap.meanJaccard?.let(::fmt) ?: "",solverOverlap.disjointFraction?.let(::fmt) ?: "",
             r.afterSolver.size,r.lbSolver,r.lbSolver-r.lbLocal,r.probes.joinToString(";") { "${it.name}=${it.status}" },
             r.tinyValidation))
         row
@@ -410,6 +419,9 @@ private fun writeReport(file: File, rows: List<ResultRow>, maxWindow: Int, cap: 
     val totalSolverFound = rows.sumOf { r -> r.probes.count { it.status == "FOUND" } }
     val totalSolverUnique = rows.sumOf { it.solverUnique.size }
     val totalSolverNovel = rows.sumOf { it.solverNovel }
+    val totalRevMillis = rows.sumOf { it.reversalMillis }
+    val totalLocalMillis = rows.sumOf { it.localMillis }
+    val totalSolverMillis = rows.sumOf { it.solverMillis }
     val correlations = listOf(
         corr("turn count","local novel cuts per 100 windows",rows.map { it.geo.turns.size.toDouble() },
             rows.map { if (it.local.windows == 0) null else it.localNovel * 100.0 / it.local.windows }),
@@ -445,17 +457,23 @@ private fun writeReport(file: File, rows: List<ResultRow>, maxWindow: Int, cap: 
         appendLine("| Full-solver alternative witnesses returned | ${totalSolverFound} |")
         appendLine("| Unique full-solver difference sets | ${totalSolverUnique} |")
         appendLine("| Full-solver cuts not subsumed by seeded cuts at insertion | ${totalSolverNovel} |")
+        appendLine("| Reversal enumeration + antichain time (ms) | ${fmt(totalRevMillis)} |")
+        appendLine("| Local replacement + antichain time (ms) | ${fmt(totalLocalMillis)} |")
+        appendLine("| Full-solver probes + antichain time (ms) | ${fmt(totalSolverMillis)} |")
+        appendLine("| Reversal minimal cuts per second | ${rate(rows.sumOf { it.reversalCuts.size }, totalRevMillis)} |")
+        appendLine("| Local novel cuts per second | ${rate(totalLocalNovel, totalLocalMillis)} |")
+        appendLine("| Full-solver novel cuts per second | ${rate(totalSolverNovel, totalSolverMillis)} |")
         appendLine()
         appendLine("## Per-instance results")
         appendLine()
-        appendLine("| Instance | Board | Turns | Mean run | Mean Chebyshev gap 4 | Reversals: intervals/unique/minimal | Local: tours/unique/novel | Solver: found/unique/novel | Disjoint lower bound: reversal → +local → +solver | Probe outcomes |")
-        appendLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+        appendLine("| Instance | Board | Turns | Mean run | Mean Chebyshev gap 4 | Reversals: intervals/unique/minimal | Local: tours/unique/novel | Solver: found/unique/novel | Time ms: reversal/local/solver | Disjoint lower bound: reversal → +local → +solver | Probe outcomes |")
+        appendLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
         for (r in rows) {
             val found = r.probes.count { it.status == "FOUND" }
             val unique = r.probes.count { it.status == "UNIQUE" }
             val unknown = r.probes.count { it.status == "UNKNOWN" }
             val gap4 = r.geo.gapStats[4]?.distance?.let(::fmt) ?: "n/a"
-            appendLine("| ${r.case.id} | ${r.case.puzzle.rows}×${r.case.puzzle.cols} | ${r.geo.turns.size} | ${fmt(r.geo.meanRun)} | ${gap4} | ${r.reversals.size}/${r.reversalUnique.size}/${r.reversalCuts.size} | ${r.local.tours}/${r.local.witnesses.size}/${r.localNovel} | ${found}/${r.solverUnique.size}/${r.solverNovel} | ${r.lbReversal} → ${r.lbLocal} → ${r.lbSolver} | F${found}/U${unique}/?${unknown} |")
+            appendLine("| ${r.case.id} | ${r.case.puzzle.rows}×${r.case.puzzle.cols} | ${r.geo.turns.size} | ${fmt(r.geo.meanRun)} | ${gap4} | ${r.reversals.size}/${r.reversalUnique.size}/${r.reversalCuts.size} | ${r.local.tours}/${r.local.witnesses.size}/${r.localNovel} | ${found}/${r.solverUnique.size}/${r.solverNovel} | ${fmt(r.reversalMillis)}/${fmt(r.localMillis)}/${fmt(r.solverMillis)} | ${r.lbReversal} → ${r.lbLocal} → ${r.lbSolver} | F${found}/U${unique}/?${unknown} |")
         }
         appendLine()
         appendLine("## Exploratory Spearman correlations")
@@ -472,6 +490,7 @@ private fun writeReport(file: File, rows: List<ResultRow>, maxWindow: Int, cap: 
         appendLine("- A full-solver cut is counted only when the solver returns Found and the returned path validates. Unique means search completed without an alternative; UNKNOWN is not a uniqueness claim.")
         appendLine("- Disjoint-packing lower bounds are in optional clues. A zero delta means the new family did not strengthen this greedy bound; a negative delta can occur when a smaller cut replaces a superset and changes the greedy packing. This does not invalidate the lower bound.")
         appendLine("- The 3×3 fixture exhaustively enumerates every internal clue subset for each cut family to verify the packing bound does not exceed that family’s exact hitting-set optimum. Larger boards report witness-derived lower bounds, not true minimum-clue counts.")
+        appendLine("- Family timings are single-run diagnostics, not stable benchmark claims; compare repeated medians before deciding on an optimization.")
         appendLine("- Overlap statistics use all unique sets up to 400; larger families use a deterministic evenly spaced sample of 400 to bound pairwise work.")
         appendLine()
         appendLine("Next falsifiable experiment: use at most one promising geometry feature only to order local windows, then compare against the current order on identical paths and budgets. Measure novel non-subsumed cuts per second and full-solver calls saved; hold out entire paths or board sizes. Never use correlation alone to discard candidates.")
