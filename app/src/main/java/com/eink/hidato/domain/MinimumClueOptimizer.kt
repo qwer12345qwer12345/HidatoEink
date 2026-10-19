@@ -15,13 +15,28 @@ import java.util.BitSet
  * The constraint family is seeded with two provably-valid tour families:
  * every legal segment reversal AND every bounded local path replacement
  * (a strict generalization of reversal); see [localReplacementWitnesses].
+ *
+ * Two additional local counterexample generators can run during the search
+ * (issue #10); both only ever ADD necessary constraints and always fall back
+ * to the complete solver, so failure to find anything proves nothing:
+ *  - counterexample farming: harvest local replacements of every tour the
+ *    solver discovers, adding their difference sets as free constraints;
+ *  - deep local search: before spending a solver call on a candidate, try a
+ *    strictly larger window/permutation budget than the seeding pass and
+ *    reject the candidate locally if any replacement misses all clues.
  */
-class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
+class MinimumClueOptimizer(
+    private val solver: HidatoSolver = HidatoSolver(),
+    private val enableCounterexampleFarming: Boolean = false,
+    private val enableDeepLocalCounterexampleSearch: Boolean = true,
+) {
     enum class Stopped { PROVED_MINIMUM, TIME_LIMIT, MASTER_NODE_LIMIT, SOLVER_UNKNOWN }
 
     companion object {
         internal const val LOCAL_REPLACEMENT_WINDOW = 8
         internal const val LOCAL_REPLACEMENT_CAP = 64
+        internal const val DEEP_LOCAL_WINDOW = 9
+        internal const val DEEP_LOCAL_CAP = 64
     }
 
     data class Result(
@@ -36,6 +51,10 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
         val solverCalls: Int,
         val masterNodes: Long,
         val elapsedMillis: Long,
+        /** Replacement tours found by deep local search that avoided a solver call. */
+        val localCounterexamples: Int = 0,
+        /** Non-seeding constraints added by farming replacements of solver-found tours. */
+        val farmedConstraints: Int = 0,
     ) {
         val optimalityProven: Boolean get() = stopped == Stopped.PROVED_MINIMUM
     }
@@ -95,6 +114,8 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
         var masterNodes = 0L
         var stopped = Stopped.TIME_LIMIT
         var minimumOptional = 0
+        var localCounterexamples = 0
+        var farmedConstraints = 0
 
         while (remainingMillis() > 0) {
             // Each pairwise-disjoint alternative-path difference set needs
@@ -126,6 +147,33 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
                 HittingSetMaster.Kind.FOUND -> {
                     val candidate = requireNotNull(master.mask)
                     if (remainingMillis() <= 0) break
+
+                    // Deep local search: a replacement tour consistent with
+                    // every candidate clue is a certified counterexample and
+                    // costs no solver call. Finding nothing proves NOTHING;
+                    // the complete solver below still runs. Windows up to the
+                    // seeding length are skipped: the seeding pass enumerated
+                    // exactly those tours with the same cap and DFS order, so
+                    // every master candidate already hits their difference
+                    // sets, and re-scanning them is pure overhead.
+                    var locallyRejected = false
+                    if (enableDeepLocalCounterexampleSearch) {
+                        val witness = findLocalCounterexampleTour(
+                            candidate, initial.path, initial.rows, initial.cols,
+                            minWindowLength = LOCAL_REPLACEMENT_WINDOW + 1,
+                        )
+                        if (witness != null) {
+                            val difference = differenceMask(initial.path, witness)
+                            check(!difference.isEmpty && !candidate.intersects(difference)) {
+                                "A local counterexample must miss every candidate clue"
+                            }
+                            addConstraint(conflicts, difference)
+                            localCounterexamples++
+                            locallyRejected = true
+                        }
+                    }
+                    if (locallyRejected) continue
+
                     when (val answer = query(toClues(candidate, n))) {
                         is AlternativeResult.Found -> {
                             val difference = differenceMask(initial.path, answer.path)
@@ -134,6 +182,16 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
                             }
                             addConstraint(conflicts, difference)
                             alternatives++
+                            if (enableCounterexampleFarming) {
+                                for (tour in localReplacementTours(
+                                    answer.path, initial.rows, initial.cols,
+                                )) {
+                                    val farmed = differenceMask(initial.path, tour)
+                                    val before = conflicts.size
+                                    addConstraint(conflicts, farmed)
+                                    if (conflicts.size > before) farmedConstraints++
+                                }
+                            }
                         }
                         is AlternativeResult.Unique -> {
                             incumbent = candidate
@@ -163,6 +221,8 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
             solverCalls = oracleCalls,
             masterNodes = masterNodes,
             elapsedMillis = elapsedMillis(),
+            localCounterexamples = localCounterexamples,
+            farmedConstraints = farmedConstraints,
         )
     }
 
@@ -221,6 +281,99 @@ class MinimumClueOptimizer(private val solver: HidatoSolver = HidatoSolver()) {
             }
         }
         return witnesses
+    }
+
+    /**
+     * Deep local counterexample search for one candidate clue mask
+     * (issue #10). Enumerates bounded window replacements with a STRICTLY
+     * larger budget than the seeding pass, returning the first tour that
+     * (a) is a complete valid Hidato tour, (b) differs from the reference,
+     * and (c) agrees with the reference on every candidate clue -- i.e. a
+     * certified counterexample for the candidate that costs no solver call.
+     *
+     * [minWindowLength] lets the optimizer skip windows the seeding pass
+     * already enumerated with the identical cap and DFS order: master
+     * candidates provably hit every difference set collected there.
+     *
+     * Incomplete by design: exhausting the budget returns null and proves
+     * NOTHING about uniqueness; the caller must fall back to the solver.
+     */
+    internal fun findLocalCounterexampleTour(
+        candidateClues: BitSet,
+        path: IntArray,
+        rows: Int,
+        cols: Int,
+        maxWindow: Int = DEEP_LOCAL_WINDOW,
+        perWindowCap: Int = DEEP_LOCAL_CAP,
+        minWindowLength: Int = 2,
+    ): IntArray? {
+        val n = path.size
+        val used = BooleanArray(maxWindow)
+        val order = IntArray(maxWindow)
+        val window = IntArray(maxWindow)
+        val difference = BitSet(n + 1)
+        var foundTour: IntArray? = null
+        for (start in 1 until n - 2) {
+            if (foundTour != null) break
+            val maxEnd = minOf(n - 2, start + maxWindow - 1)
+            for (end in maxOf(start + 1, start + minWindowLength - 1)..maxEnd) {
+                val m = end - start + 1
+                for (k in 0 until m) window[k] = path[start + k]
+                val anchorIn = path[start - 1]
+                val anchorOut = path[end + 1]
+                var emitted = 0
+
+                fun dfs(pos: Int) {
+                    if (foundTour != null || emitted >= perWindowCap) return
+                    if (pos == m) {
+                        // Cheap pre-check: the permutation must differ from
+                        // the reference inside this window at a NON-clue digit.
+                        var differs = false
+                        for (p in 0 until m) {
+                            if (window[order[p]] != path[start + p] &&
+                                !candidateClues.get(start + p + 1)
+                            ) {
+                                differs = true
+                                break
+                            }
+                        }
+                        if (differs) {
+                            val tour = path.copyOf()
+                            for (p in 0 until m) tour[start + p] = window[order[p]]
+                            difference.clear()
+                            for (number in 2 until n) {
+                                if (tour[number - 1] != path[number - 1]) difference.set(number)
+                            }
+                            if (!difference.isEmpty && !candidateClues.intersects(difference)) {
+                                foundTour = tour
+                            }
+                        }
+                        emitted++
+                        return
+                    }
+                    for (cand in 0 until m) {
+                        if (used[cand]) continue
+                        val cell = window[cand]
+                        if (pos == 0) {
+                            if (!Grids.adjacent(anchorIn, cell, cols)) continue
+                        } else if (!Grids.adjacent(window[order[pos - 1]], cell, cols)) {
+                            continue
+                        }
+                        if (pos == m - 1 && !Grids.adjacent(cell, anchorOut, cols)) continue
+                        used[cand] = true
+                        order[pos] = cand
+                        dfs(pos + 1)
+                        used[cand] = false
+                        if (foundTour != null || emitted >= perWindowCap) return
+                    }
+                }
+
+                used.fill(false)
+                dfs(0)
+                if (foundTour != null) return foundTour
+            }
+        }
+        return foundTour
     }
 
     /**
