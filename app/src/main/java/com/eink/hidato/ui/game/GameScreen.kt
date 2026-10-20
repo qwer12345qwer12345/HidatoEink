@@ -123,13 +123,11 @@ fun GameScreen(
                         enabled = !gameState.completed,
                         modifier = Modifier.weight(1f),
                     )
-                    val hintAvailable = (1..gameState.total).any { n ->
-                        !gameState.isVisibleNumber(n)
-                    }
+                    // O(1)：提示可用当且仅当盘面仍有隐藏数字（GameState 构造时已缓存）
                     EinkButton(
                         text = "提示",
                         onClick = viewModel::onHint,
-                        enabled = hintAvailable,
+                        enabled = gameState.hasHiddenNumbers,
                         modifier = Modifier.weight(1f),
                     )
                 }

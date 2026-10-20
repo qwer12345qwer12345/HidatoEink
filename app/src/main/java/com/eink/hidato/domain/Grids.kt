@@ -93,14 +93,25 @@ data class GameState(
 ) {
     val total: Int get() = puzzle.total
 
-    /** 玩家放置的所有格子集合 */
+    /**
+     * 玩家放置的所有格子集合。
+     * GameState 不可变，构造时计算一次：此前每次访问都 toSet() 新建集合，
+     * 而棋盘每次重绘会对每个格子调用 isVisibleNumber，热点路径分配量大。
+     */
     val playerCells: Set<Int> = playerPath.toSet()
 
     /** 当前选中的活动数字；无焦点时为 null */
     val focusedNumber: Int? get() = focusedCell?.let { puzzle.numberAt(it) }
 
-    /** 盘面上当前已出现的数字总数（包含初始线索、提示、玩家填入） */
-    val placedCount: Int get() = (1..total).count { isVisibleNumber(it) }
+    /** 盘面上当前已出现的数字总数（包含初始线索、提示、玩家填入），构造时计算一次 */
+    val placedCount: Int = run {
+        var count = 0
+        for (n in 1..total) if (isVisibleNumber(n)) count++
+        count
+    }
+
+    /** 是否还有可提示的隐藏数字（等价于 placedCount < total） */
+    val hasHiddenNumbers: Boolean get() = placedCount < total
 
     /** 兼容字段：已填入数字数量 */
     val currentNumber: Int get() = placedCount
