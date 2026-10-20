@@ -11,7 +11,7 @@
 - 即时按唯一的内置答案判断走步，通关后展示统计；首次启动有可跳过的教程。
 - Room 保存游戏进度，DataStore 保存用户设置。新游戏覆盖旧存档。
 
-当前界面使用 Jetpack Compose 与 Material 3，已考虑点击区域与棋盘滚动；**尚未集成各厂商 E-ink 局部刷新接口或独立的纯黑白主题**，仍需在目标设备上验证。
+当前界面使用 Jetpack Compose 与 Material 3：棋盘为**单一 Canvas 自绘**（点击命中由 `BoardGeometry` 纯函数换算，避免每格一个按钮节点的全棋盘重组），主题为**静态灰阶墨水屏配色**（无动态取色、无涟漪动画）。**尚未集成各厂商 E-ink 局部刷新接口**，仍需在目标设备上验证。UI/状态层优化动机与取舍见 [docs/OPTIMIZATION.md](docs/OPTIMIZATION.md)。
 
 ## 出题的两种运行方式
 
